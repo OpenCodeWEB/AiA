@@ -1,0 +1,28 @@
+[project]
+name = "opencodeweb-aia"
+version = "0.1.0"
+description = "OpenCodeWEB OS AiA Master Intelligence Engine — zero-constraint core runtime"
+requires-python = ">=3.11"
+authors = [
+  { name = "ABsUP" },
+  { name = "ABsUPs" },
+]
+readme = "README.md"
+license = { text = "MIT" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --disable-warnings"
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+extend-exclude = ["lib/modules"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests bootstrap sys.path before importing the core package — intentional.
+"tests/*.py" = ["E402"]

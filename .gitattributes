@@ -1,0 +1,14 @@
+# Normalize line endings for all text files (Linux CI / runtime).
+* text=auto eol=lf
+
+# Shell scripts must stay LF.
+*.sh text eol=lf
+
+# Binary files.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
