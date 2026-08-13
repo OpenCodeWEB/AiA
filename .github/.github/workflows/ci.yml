@@ -1,0 +1,36 @@
+name: OpenCodeWEB CI
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  backup-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Establish pre-mutation backup branch
+        run: |
+          git config user.name "opencodeweb[bot]"
+          git config user.email "311941023+opencodeweb[bot]@users.noreply.github.com"
+          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
+          git branch "backup/opencode-__REPO__-${TIMESTAMP}" HEAD
+          git push origin "backup/opencode-__REPO__-${TIMESTAMP}"
+
+      - name: Secret leak prevention scan
+        run: |
+          if git grep -nE '(ghp_[A-Za-z0-9]{30,}|gho_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}|AKIA[0-9A-Z]{16}|cfut_[A-Za-z0-9]{20,})' -- . ':!*.lock' ':!package-lock.json' ':!**/node_modules/**' ':!*.min.js' ':!*.min.css'; then
+            echo "::error::Potential secret leak detected"
+            exit 1
+          fi
+          echo "No secrets found."
+
+      - name: Repository validation
+        run: |
+          test -f README.md || { echo "::error::README.md missing"; exit 1; }
+          echo "Scaffold valid."
