@@ -189,18 +189,20 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          BODY=$(printf '%s\n' \
+            "## Automated health alert" \
+            "" \
+            "The OpenCodeWEB edge gateway https://opencodeweb.xup.workers.dev/health did not return HTTP 200." \
+            "" \
+            "- Repository: ${{ github.repository }}" \
+            "- Workflow run: $RUN_URL" \
+            "- Timestamp: $(date -u)" \
+            "" \
+            "The OpenCodeWEB GitHub App will investigate and auto-repair the gateway worker.")
           gh issue create \
             --repo "${{ github.repository }}" \
-            --title "[self-healing] Gateway health check failed — run #${{ github.run_id }}" \
-            --body "## Automated health alert
-
-The OpenCodeWEB edge gateway **https://opencodeweb.xup.workers.dev/health** did not return HTTP 200.
-
-- **Repository:** ${{ github.repository }}
-- **Workflow run:** $RUN_URL
-- **Timestamp:** $(date -u)
-
-The OpenCodeWEB GitHub App will investigate and auto-repair the gateway worker." || \
+            --title "[self-healing] Gateway health check failed - run #${{ github.run_id }}" \
+            --body "$BODY" || \
           echo "::warning::Could not create alert issue (missing permissions?)"
 
   # -------------------------------------------------------------------
