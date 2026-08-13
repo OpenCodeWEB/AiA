@@ -46,7 +46,7 @@ from typing import Any
 
 SYS_ROOT: Path = Path(os.environ.get("OPENCODE_ROOT", "/opt/opencode"))
 EDGE_GATEWAY: str = os.environ.get("OPENCODE_GATEWAY", "https://opencodeweb.xup.workers.dev")
-SYNC_ENDPOINT: str = os.environ.get("OPENCODE_SYNC_ENDPOINT", f"{EDGE_GATEWAY}/sync")
+SYNC_ENDPOINT: str = os.environ.get("OPENCODE_SYNC_ENDPOINT", f"{EDGE_GATEWAY}/api/aia/sync")
 
 # Local persistent store for learned lessons.
 LESSONS_DIR: Path = SYS_ROOT / "core" / "aia" / "memory"

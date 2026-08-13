@@ -53,7 +53,7 @@ EDGE_GATEWAY: str = os.environ.get("OPENCODE_GATEWAY", "https://opencodeweb.xup.
 
 # Optional live web research endpoint (browser-style research assistant).
 WEB_RESEARCH_ENDPOINT: str = os.environ.get(
-    "OPENCODE_WEB_RESEARCH", "https://opencodeweb.xup.workers.dev/research"
+    "OPENCODE_WEB_RESEARCH", "https://opencodeweb.xup.workers.dev/api/aia/research"
 )
 
 MAX_REASONING_STEPS: int = int(os.environ.get("OPENCODE_MAX_STEPS", "50"))
