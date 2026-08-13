@@ -100,12 +100,12 @@ jobs:
 
   # -------------------------------------------------------------------
   # 3. DEPLOY WEB PORTALS -> Cloudflare Pages (pocwu.pages.dev)
-  #    Runs only when a static portal directory exists in this repo.
+  #    Deploys only when a static portal directory exists in this repo.
+  #    (hashFiles is step-scoped, so the gate lives on the deploy step.)
   # -------------------------------------------------------------------
   deploy-portal:
     name: Deploy portal to Cloudflare Pages
     needs: [backup, quality]
-    if: hashFiles('web/**', 'portal/**', 'site/**', 'docs/**') != ''
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -121,6 +121,7 @@ jobs:
 
       - name: Deploy to Cloudflare Pages (pocwu.pages.dev)
         id: pages-deploy
+        if: hashFiles('web/**', 'portal/**', 'site/**', 'docs/**') != ''
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -132,6 +133,7 @@ jobs:
           done
           if [ -z "$PORTAL_DIR" ]; then
             echo "No portal directory found — skipping deployment."
+            echo "deployed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           echo "Deploying portal from ./${PORTAL_DIR} to Pages project '${CLOUDFLARE_PROJECT}'"
@@ -139,9 +141,11 @@ jobs:
             --project-name="${CLOUDFLARE_PROJECT}" \
             --branch=main 2>&1 | tee /tmp/wrangler.log | grep -oP 'https://[a-z0-9-]+\.\S*pages\.dev' | head -1 || true)
           echo "deployment_url=${DEPLOYMENT_URL:-https://pocwu.pages.dev}" >> "$GITHUB_OUTPUT"
+          echo "deployed=true" >> "$GITHUB_OUTPUT"
           cat /tmp/wrangler.log
 
       - name: Verify portal is live
+        if: steps.pages-deploy.outputs.deployed == 'true'
         run: |
           URL="${{ steps.pages-deploy.outputs.deployment_url || 'https://pocwu.pages.dev' }}"
           for i in 1 2 3 4 5; do
