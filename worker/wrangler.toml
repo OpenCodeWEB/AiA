@@ -1,0 +1,12 @@
+name = "gun-brain"
+main = "src/GunBrainDO.js"
+compatibility_date = "2026-01-01"
+
+[durable_objects]
+bindings = [{ name = "GUN_BRAIN", class_name = "GunBrainDO" }]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GunBrainDO"]
+
+# Deploy (blocked until CF auth restored): wrangler login && wrangler deploy

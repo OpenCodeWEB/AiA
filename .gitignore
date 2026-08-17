@@ -40,3 +40,14 @@ core/aia/memory/
 core/aia/lessons.jsonl
 run/
 *.pid
+
+# AiA brain — machine-local learning state (never commit)
+brain/
+instance_secret
+sync_state.json
+observation.log*
+skill_promotion.json
+infinite_memory.json
+learned_patterns.json
+user_profile.json
+*.json.tmp
