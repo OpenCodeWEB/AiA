@@ -25,5 +25,24 @@ class ExecutorRegistry:
                 return ex
         return None
 
+    def run_with_fallback(self, prompt: str, timeout: int = 120) -> tuple[str, str, list[str]]:
+        """Run on the first available executor; on failure fall through to the next.
+
+        Returns (output, executor_name, errors) — never raises for executor
+        failures as long as at least one executor produced output.
+        """
+        errors: list[str] = []
+        for ex in self.executors:
+            if not ex.available():
+                continue
+            try:
+                output, meta = ex.run(prompt, timeout=timeout)
+                return output, ex.name, errors
+            except Exception as e:  # noqa: BLE001 — try the next executor
+                errors.append(f"{ex.name}: {e}")
+        if not errors:
+            raise RuntimeError("no executor available")
+        raise RuntimeError(f"all executors failed: {'; '.join(errors)}")
+
     def describe(self) -> list[dict[str, Any]]:
         return [ex.describe() for ex in self.executors]

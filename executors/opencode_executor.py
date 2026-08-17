@@ -27,7 +27,7 @@ class OpenCodeExecutor(Executor):
     def available(self) -> bool:
         return shutil.which(self._cmd) is not None
 
-    def run(self, prompt: str, timeout: int = 180) -> tuple[str, dict[str, Any]]:
+    def run(self, prompt: str, timeout: int = 90) -> tuple[str, dict[str, Any]]:
         cmd = [self._cmd] + shlex.split(self.template)[1:]
         cmd = [c.replace("{prompt}", prompt) for c in cmd]
         started = time.time()

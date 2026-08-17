@@ -154,13 +154,13 @@ class AiAMasterEngine:
 
     # ── delegation ────────────────────────────────────────────────────────
     def delegate_and_observe(self, prompt: str) -> tuple[str, str]:
-        ex = self.registry.pick(prompt)
-        if ex is None:
-            raise RuntimeError("no executor available")
-        self._log(f"📡 Delegating to [{ex.name}]...")
-        output, meta = ex.run(prompt)
-        self.hub.record_execution(ex.name, prompt, output, success=True, duration_ms=meta.get("duration_ms"))
-        return output, ex.name
+        timeout = int(os.environ.get("AIA_EXECUTOR_TIMEOUT", "120"))
+        self._log("📡 Delegating to the model swarm (Gemini → opencode → mock)...")
+        output, model, errors = self.registry.run_with_fallback(prompt, timeout=timeout)
+        if errors:
+            self._log(f"⚠️  {len(errors)} executor(s) failed, fell through: {'; '.join(errors)}")
+        self.hub.record_execution(model, prompt, output, success=True)
+        return output, model
 
     def learn_from_execution(self, model: str, prompt: str, output: str, success: bool = True) -> Optional[dict[str, Any]]:
         # Hub counting must ALWAYS happen (dedupe only guards the knowledge list)
