@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiA — Unlimited Self-Evolving Master Intelligence</title>
+<meta name="description" content="AiA is the master intelligence of OpenCodeWEB OS: a Supervisor-Observer-Executor engine with zero token thresholds, a never-stopping learning loop, and a privacy-safe federated swarm.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%A0%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg2: #10161f;
+    --card: #141c28;
+    --border: #223048;
+    --text: #dbe4f0;
+    --muted: #8aa0bd;
+    --accent: #4cc2ff;
+    --accent2: #9d7bff;
+    --good: #3ddc97;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(157,123,255,.16), transparent 60%),
+      radial-gradient(900px 500px at 10% 0%, rgba(76,194,255,.14), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 40px; border-bottom: 1px solid var(--border);
+  }
+  .brand { font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+  .brand span { color: var(--accent); }
+  header a { color: var(--muted); text-decoration: none; font-size: 14px; }
+  header a:hover { color: var(--text); }
+  main { max-width: 980px; margin: 0 auto; padding: 70px 24px 40px; }
+  .hero h1 {
+    font-size: clamp(34px, 6vw, 58px); font-weight: 800; line-height: 1.12;
+    background: linear-gradient(100deg, var(--text) 20%, var(--accent) 55%, var(--accent2) 90%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p.lead {
+    margin: 22px 0 30px; font-size: 19px; color: var(--muted); max-width: 640px;
+  }
+  .badges { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 34px; }
+  .badge {
+    background: var(--card); border: 1px solid var(--border); color: var(--muted);
+    padding: 6px 14px; border-radius: 999px; font-size: 13px;
+  }
+  .badge b { color: var(--text); font-weight: 600; }
+  .cta { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 64px; }
+  .btn {
+    display: inline-block; padding: 13px 26px; border-radius: 10px;
+    font-size: 15px; font-weight: 600; text-decoration: none; transition: .18s;
+  }
+  .btn-primary { background: var(--accent); color: #06121c; }
+  .btn-primary:hover { background: #6cd2ff; transform: translateY(-1px); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  h2 { font-size: 26px; font-weight: 700; margin: 48px 0 18px; }
+  h2::after { content: ""; display: block; width: 42px; height: 3px; margin-top: 8px;
+    border-radius: 2px; background: linear-gradient(90deg, var(--accent), var(--accent2)); }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px; transition: .18s;
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-2px); }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--muted); }
+  .pill { display: inline-block; font-size: 12px; padding: 3px 10px; border-radius: 999px;
+    margin-bottom: 12px; font-weight: 600; letter-spacing: .4px; }
+  .pill.blue { background: rgba(76,194,255,.14); color: var(--accent); }
+  .pill.purple { background: rgba(157,123,255,.14); color: var(--accent2); }
+  .pill.green { background: rgba(61,220,151,.14); color: var(--good); }
+  code {
+    background: #0d1420; border: 1px solid var(--border); border-radius: 6px;
+    padding: 2px 7px; font-size: 13px; color: var(--accent);
+  }
+  footer {
+    margin-top: 80px; padding: 26px 40px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 13px; text-align: center;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">AiA <span>·</span> Master Intelligence</div>
+  <a href="https://github.com/OpenCodeWEB/AiA">Open Source on GitHub</a>
+</header>
+
+<main>
+  <section class="hero">
+    <h1>Unlimited Self-Evolving<br>Master Intelligence</h1>
+    <p class="lead">
+      AiA is the master intelligence of <b>OpenCodeWEB OS</b> — a
+      Supervisor-Observer-Executor engine with <b>zero token thresholds</b>,
+      a <b>never-stopping learning loop</b>, and a <b>privacy-safe federated
+      swarm</b> connecting every installation worldwide.
+    </p>
+    <div class="badges">
+      <span class="badge"><b>Zero</b> token limits</span>
+      <span class="badge"><b>24/7</b> learning loop</span>
+      <span class="badge"><b>Privacy-safe</b> federation</span>
+      <span class="badge"><b>Open Source</b> · MIT</span>
+    </div>
+    <div class="cta">
+      <a class="btn btn-primary" href="https://github.com/OpenCodeWEB/AiA">⭐ Star on GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/OpenCodeWEB/AiA#readme">Read the Docs</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Why AiA</h2>
+    <div class="grid">
+      <div class="card">
+        <span class="pill blue">Engine</span>
+        <h3>Supervisor · Observer · Executor</h3>
+        <p>A tri-role engine that plans, observes, and executes with a fallback
+        executor chain (Gemini → opencode → mock) — a task always runs.</p>
+      </div>
+      <div class="card">
+        <span class="pill purple">Freedom</span>
+        <h3>Zero-Constraint Policy</h3>
+        <p>No token limits, no hard timeouts, no artificial quotas, no
+        throttling. Enforced by the <code>ZeroConstraintGuard</code>.</p>
+      </div>
+      <div class="card">
+        <span class="pill green">Swarm</span>
+        <h3>Federated &amp; Private</h3>
+        <p>Only abstracted feature vectors + HMAC-SHA256 (per-install secret)
+        are shared. Raw solutions never leave your device.</p>
+      </div>
+      <div class="card">
+        <span class="pill blue">Memory</span>
+        <h3>Persistent Brain</h3>
+        <p>Skills, learned facts, interactions, and memory entries persist in
+        the brain graph — mirrored to the GunX global relay.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Quick Start</h2>
+    <div class="card" style="max-width:640px">
+      <h3>Clone &amp; run</h3>
+      <p style="font-family:Consolas,monospace;font-size:14px;margin:10px 0">
+        git clone https://github.com/OpenCodeWEB/AiA<br>
+        cd AiA &amp;&amp; pip install -e .<br>
+        aia --supervise
+      </p>
+      <p>Canonical path: <code>/opt/opencode/lib/aia</code> · Brain:
+      <code>/opt/opencode/aia_brain</code></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  🧠 AiA — built by <a href="https://github.com/ABsUP">ABsUP</a> for the
+  <a href="https://github.com/OpenCodeWEB">OpenCodeWEB</a> ecosystem ·
+  Hosted on <a href="https://pages.cloudflare.com">Cloudflare Pages</a> ·
+  <a href="https://js.org">js.org</a> subdomain
+</footer>
+</body>
+</html>
