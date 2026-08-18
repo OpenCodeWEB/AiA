@@ -110,9 +110,12 @@
       <h2>Prediction map · click the map to teach it</h2>
       <canvas id="grid" width="560" height="420"></canvas>
       <div class="controls">
-        <button id="btnRun" class="primary">⏸ Pause</button>
-        <button id="btnEvolve">🧬 Force evolve</button>
-        <button id="btnReset">↺ Reset brain</button>
+        <button id="btnInject" class="primary" title="Feed one outlier input - watch the brain's anomaly response">🧪 Inject Outlier</button>
+        <button id="btnRebirth" title="Restore learning energy without touching the architecture">⚡ Rebirth Spark</button>
+        <button id="btnExport" title="Download the learned genome (weights, biases, topology)">💾 Export Genome</button>
+        <button id="btnImport" title="Load a previously exported genome file">📥 Import Genome</button>
+        <button id="btnBench" title="Read-only throughput + accuracy benchmark">🔬 Stress Benchmark</button>
+        <input type="file" id="fileImport" accept=".json" style="display:none">
         <select id="selPattern">
           <option value="xor">Pattern: XOR</option>
           <option value="and">Pattern: AND</option>
@@ -127,7 +130,7 @@
           <option value="8">Speed: 8×</option>
         </select>
       </div>
-      <div class="hint">Blue cells = predicted 1 · purple = predicted 0 · colored dots are training samples (blue = 1, red = 0). Click a cell to drop your own teaching sample.</div>
+      <div class="hint">The brain never pauses and never gets force-evolved - it is autonomous. You can challenge it (outlier), energize it (rebirth), preserve it (export/import genome) or benchmark it (read-only). Nothing on this page can destroy learned knowledge. Blue cells = predicted 1 · purple = predicted 0 · colored dots are training samples (blue = 1, red = 0). Click a cell to drop your own teaching sample.</div>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:18px;">
@@ -285,7 +288,7 @@ const brain = new Brain();
 const $ = id => document.getElementById(id);
 const grid = $("grid"), gctx = grid.getContext("2d");
 const chart = $("chart"), cctx = chart.getContext("2d");
-let running = true, custom = [], lastGen = -1;
+let custom = [], lastGen = -1;
 const lossHist = [];
 
 function logLine(msg, cls) {
@@ -294,6 +297,13 @@ function logLine(msg, cls) {
   d.textContent = msg;
   $("log").prepend(d);
   while ($("log").children.length > 60) $("log").removeChild($("log").lastChild);
+}
+
+/* djb2 checksum for genome files (works without crypto.subtle on non-TLS pages) */
+function checksum(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) h = ((h * 33) ^ str.charCodeAt(i)) >>> 0;
+  return h.toString(16);
 }
 
 /* ---------- stable rendering (change-detection + adaptive resolution) ---------- */
@@ -391,7 +401,6 @@ function refreshStats() {
 let frame = 0;
 function tick() {
   frame++;
-  if (!running) { requestAnimationFrame(tick); return; }
   const speed = parseInt($("selSpeed").value, 10);
   for (let i = 0; i < speed; i++) {
     const [x, t] = patternSample();
@@ -420,14 +429,84 @@ grid.addEventListener("click", e => {
   for (let i = 0; i < 6; i++) brain.train([x, y], [t]);
   logLine(`manual teach: (${x.toFixed(2)}, ${y.toFixed(2)}) → ${t}`, "good");
 });
-$("btnRun").onclick = () => {
-  running = !running;
-  $("btnRun").textContent = running ? "⏸ Pause" : "▶ Run";
+
+/* 🧪 Inject Outlier — challenge the brain with one anomalous input (read-only: no training) */
+$("btnInject").onclick = () => {
+  const angle = Math.random() * Math.PI * 2;
+  const radius = 1.35 + Math.random() * 0.85;   // well outside the ±1 teaching domain
+  const x = [Math.cos(angle) * radius, Math.sin(angle) * radius];
+  const p = brain.forward(x)[0];
+  const conf = Math.abs(p - 0.5) * 2;           // 0..1 confidence
+  const verdict = conf > 0.6 ? "strong" : conf > 0.25 ? "uncertain" : "confused";
+  logLine(`🧪 outlier (${x[0].toFixed(2)}, ${x[1].toFixed(2)}) → net=${p.toFixed(3)} · ${verdict} (conf ${(conf*100).toFixed(0)}%)`, "warn");
 };
-$("btnEvolve").onclick = () => { brain.evolve("manual"); logLine(brain.evoLog[brain.evoLog.length-1], "ev"); };
-$("btnReset").onclick = () => {
-  brain.reset(); custom = []; lossHist.length = 0; chartLen = -1; archSig = "";
-  logLine("brain reset — generation 0", "good");
+
+/* ⚡ Rebirth Spark — restore learning energy without touching architecture or knowledge */
+$("btnRebirth").onclick = () => {
+  brain.lr = brain.baseLr;
+  if (brain.ema !== null) brain.best = brain.ema * 1.15;  // relax the target, keep knowledge
+  brain.stuck = 0;
+  logLine("⚡ rebirth spark — learning energy restored, architecture & memory untouched", "ev");
+};
+
+/* 💾 Export Genome — download the learned genome (weights, biases, topology, memory) */
+$("btnExport").onclick = () => {
+  const genome = {
+    app: "aia-neural-lab", version: 2, exported: new Date().toISOString(),
+    gen: brain.gen, samples: brain.samples, evolutions: brain.evolutions,
+    hidden: brain.hidden, lr: brain.lr, ema: brain.ema,
+    w: brain.w, b: brain.b, evalW: brain.evalW.slice(-80), custom: custom
+  };
+  const payload = JSON.stringify({ checksum: checksum(JSON.stringify(genome)), genome });
+  const blob = new Blob([payload], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `aia-brain-genome-g${brain.gen}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+  logLine(`💾 genome exported — gen ${brain.gen}, ${brain.samples.toLocaleString()} samples, [${brain.hidden}] (read-only)`, "good");
+};
+
+/* 📥 Import Genome — restore a previously exported brain (checksum-verified) */
+$("btnImport").onclick = () => $("fileImport").click();
+$("fileImport").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      const data = JSON.parse(reader.result);
+      if (!data.genome || data.genome.app !== "aia-neural-lab") throw new Error("bad file");
+      if (checksum(JSON.stringify(data.genome)) !== data.checksum) throw new Error("checksum");
+      const g = data.genome;
+      brain.w = g.w; brain.b = g.b; brain.hidden = g.hidden;
+      brain.gen = g.gen; brain.samples = g.samples; brain.evolutions = g.evolutions;
+      brain.lr = g.lr || brain.baseLr;
+      brain.ema = g.ema ?? null; brain.best = g.ema ?? null; brain.stuck = 0;
+      brain.evalW = g.evalW || []; custom = g.custom || [];
+      chartLen = -1; archSig = "";
+      logLine(`📥 genome imported — gen ${brain.gen}, ${brain.samples.toLocaleString()} samples, [${brain.hidden}]`, "good");
+    } catch (err) {
+      logLine("⚠️ import failed — invalid or corrupted genome file", "warn");
+    }
+    e.target.value = "";
+  };
+  reader.readAsText(file);
+});
+
+/* 🔬 Stress Benchmark — read-only throughput + live accuracy probe */
+$("btnBench").onclick = () => {
+  const runs = 800;
+  let ok = 0;
+  const t0 = performance.now();
+  for (let i = 0; i < runs; i++) {
+    const [x, t] = patternSample();
+    const p = brain.forward(x)[0];
+    if ((p >= 0.5) === (t[0] >= 0.5)) ok++;
+  }
+  const dt = performance.now() - t0;
+  const speed = (runs / (dt / 1000)).toFixed(0);
+  logLine(`🔬 benchmark: ${speed} pred/s · live accuracy ${(ok/runs*100).toFixed(1)}% · ${dt.toFixed(0)}ms (read-only)`, "ev");
 };
 ["selPattern", "selSpeed"].forEach(id => $(id).addEventListener("change", () => {
   logLine(`pattern → ${$("selPattern").options[$("selPattern").selectedIndex].text}`, "");
