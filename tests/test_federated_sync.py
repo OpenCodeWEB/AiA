@@ -22,8 +22,7 @@ def test_anonymize_never_leaks_raw_text(tmp_path):
         "source_model": "gemini",
         "prompt_pattern": "fix login bug in /Users/abisl/secret-project/api/auth.py",
         "learned_solution": (
-            "def fix_login(): token = 'my-private-token-abc123'; "
-            "url = 'https://api.example.com/secret'; return token + url"
+            "def fix_login(): token = 'my-private-token-abc123'; url = 'https://api.example.com/secret'; return token + url"
         ),
     }
     payload = sync.anonymize_pattern(record)

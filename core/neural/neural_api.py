@@ -20,6 +20,13 @@ train, query, evolve and inspect the network:
   POST /memory/store          store a pattern in associative memory
   POST /memory/recall         reconstruct a corrupted pattern
   POST /predict_sequence      forecast the next steps of a sequence
+  POST /federated/sync        publish a signed weight delta to the mesh
+  POST /federated/receive     ingest a signed update from another node
+  POST /federated/aggregate   FedAvg-merge queued updates into the brain
+  POST /rl/act                epsilon-greedy action selection
+  POST /rl/step               environment transition -> replay learning
+  POST /attention/weights     scaled dot-product attention map + context
+  POST /attention/train       online attention projection training
 """
 
 from __future__ import annotations
@@ -30,8 +37,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
 from .anomaly_detector import AnomalyDetector
+from .attention_layer import AttentionLayer
 from .autoencoder_compressor import AutoencoderCompressor
 from .curriculum_controller import CurriculumController
+from .dqn_agent import DQNAgent
+from .federated_sync import FederatedSync
 from .hopfield_memory import HopfieldMemory
 from .rnn_sequence import ElmanRNN
 from .self_evolving_nn import SelfEvolvingNN
@@ -52,6 +62,9 @@ class NeuralHandler(BaseHTTPRequestHandler):
     curriculum: CurriculumController = CurriculumController()
     memory: HopfieldMemory = HopfieldMemory(size=16)
     rnn: ElmanRNN = ElmanRNN(input_size=2, hidden_size=8, output_size=1)
+    federated: FederatedSync = FederatedSync()
+    dqn: DQNAgent = DQNAgent(state_size=2, action_size=3)
+    attention: AttentionLayer = AttentionLayer(d_model=4)
     lock: threading.RLock = threading.RLock()
 
     def _send(self, code: int, obj: Any) -> None:
@@ -90,6 +103,9 @@ class NeuralHandler(BaseHTTPRequestHandler):
                             "curriculum": self.curriculum.status(),
                             "memory": self.memory.status(),
                             "rnn": self.rnn.status(),
+                            "federated": self.federated.status(),
+                            "dqn": self.dqn.status(),
+                            "attention": self.attention.status(),
                         },
                     )
             elif self.path.startswith("/status"):
@@ -241,6 +257,93 @@ class NeuralHandler(BaseHTTPRequestHandler):
                 with NeuralHandler.lock:
                     loss = self.rnn.train_sequence(seq, tgt)
                     self._send(200, {"ok": True, "loss": round(loss, 6), "rnn": self.rnn.status()})
+            elif self.path.startswith("/federated/sync"):
+                sample_count = max(1, int(data.get("sample_count", 1)))
+                with NeuralHandler.lock:
+                    update = self.federated.make_update(self.nn.weights, self.nn.biases, sample_count)
+                    if update is None:
+                        self._send(200, {"ok": True, "published": False, "note": "brain delta below threshold"})
+                        return
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "published": True,
+                            "node_id": update["node_id"],
+                            "round": update["round"],
+                            "sample_count": update["sample_count"],
+                            "signature": update["signature"][:16] + "...",
+                            "federated": self.federated.status(),
+                        },
+                    )
+            elif self.path.startswith("/federated/receive"):
+                update = data.get("update")
+                if not isinstance(update, dict):
+                    self._send(400, {"ok": False, "error": "update must be an object"})
+                    return
+                with NeuralHandler.lock:
+                    accepted = self.federated.receive(update)
+                    self._send(200, {"ok": True, "accepted": accepted, "federated": self.federated.status()})
+            elif self.path.startswith("/federated/aggregate"):
+                with NeuralHandler.lock:
+                    report = self.federated.aggregate(self.nn.weights, self.nn.biases)
+                    self._send(200, {"ok": True, **report, "federated": self.federated.status()})
+            elif self.path.startswith("/rl/act"):
+                state = data.get("state")
+                if not state or len(state) != self.dqn.state_size:
+                    self._send(400, {"ok": False, "error": f"expected {self.dqn.state_size} state values"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.dqn.act(_f64_list(state))
+                    self._send(200, {"ok": True, **result, "dqn": self.dqn.status()})
+            elif self.path.startswith("/rl/step"):
+                state = data.get("state")
+                next_state = data.get("next_state")
+                action = data.get("action")
+                reward = data.get("reward")
+                if (
+                    not state
+                    or not next_state
+                    or len(state) != self.dqn.state_size
+                    or len(next_state) != self.dqn.state_size
+                    or action is None
+                    or reward is None
+                ):
+                    self._send(400, {"ok": False, "error": "state/next_state/action/reward required"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.dqn.step(
+                        _f64_list(state),
+                        int(action),
+                        _f64(reward),
+                        _f64_list(next_state),
+                        bool(data.get("done", False)),
+                    )
+                    self._send(200, {"ok": True, **result, "dqn": self.dqn.status()})
+            elif self.path.startswith("/attention/train"):
+                matrix = data.get("input_matrix")
+                if not matrix or not all(isinstance(row, (list, tuple)) for row in matrix):
+                    self._send(400, {"ok": False, "error": "input_matrix must be a list of vectors"})
+                    return
+                mat = [_f64_list(row) for row in matrix]
+                if any(len(row) != self.attention.d_model for row in mat):
+                    self._send(400, {"ok": False, "error": f"expected vectors of {self.attention.d_model}"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.attention.train(mat, steps=max(1, int(data.get("steps", 20))))
+                    self._send(200, {"ok": True, **result, "attention": self.attention.status()})
+            elif self.path.startswith("/attention/weights"):
+                matrix = data.get("input_matrix")
+                if not matrix or not all(isinstance(row, (list, tuple)) for row in matrix):
+                    self._send(400, {"ok": False, "error": "input_matrix must be a list of vectors"})
+                    return
+                mat = [_f64_list(row) for row in matrix]
+                if any(len(row) != self.attention.d_model for row in mat):
+                    self._send(400, {"ok": False, "error": f"expected vectors of {self.attention.d_model}"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.attention.forward(mat)
+                    self._send(200, {"ok": True, **result, "attention": self.attention.status()})
             else:
                 self._send(404, {"ok": False, "error": "not found"})
         except Exception as e:  # noqa: BLE001

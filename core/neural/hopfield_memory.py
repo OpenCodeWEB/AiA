@@ -90,10 +90,7 @@ class HopfieldMemory:
         self.recalls += 1
         # success = the recall converged to a stored pattern (stored are
         # bipolar +/-1; recovered is 0/1, so compare on the same scale)
-        matched = any(
-            all(a == (1 if b == 1 else 0) for a, b in zip(recovered, stored, strict=True))
-            for stored in self.patterns
-        )
+        matched = any(all(a == (1 if b == 1 else 0) for a, b in zip(recovered, stored, strict=True)) for stored in self.patterns)
         if matched:
             self.successful_recalls += 1
 

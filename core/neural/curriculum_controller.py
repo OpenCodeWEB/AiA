@@ -77,13 +77,16 @@ class CurriculumController:
         """Feed one training outcome. Returns the curriculum state."""
         self.samples_seen += 1
         self.stage_samples += 1
-        self.stage_ema_loss = (
-            loss if self.stage_ema_loss is None else 0.9 * self.stage_ema_loss + 0.1 * loss
-        )
+        self.stage_ema_loss = loss if self.stage_ema_loss is None else 0.9 * self.stage_ema_loss + 0.1 * loss
 
         # mastery: lower loss on the current stage's samples -> higher mastery
         mastery = 1.0 - min(1.0, (self.stage_ema_loss or 0.0) * 4.0)
-        self.stage_mastery = 0.92 * self.stage_mastery + 0.08 * mastery
+        # bootstrap the EMA from the first sample so advancement responds
+        # to CURRENT performance instead of a slow warm-up from zero
+        if self.stage_samples == 1:
+            self.stage_mastery = mastery
+        else:
+            self.stage_mastery = 0.92 * self.stage_mastery + 0.08 * mastery
 
         advanced = False
         if (

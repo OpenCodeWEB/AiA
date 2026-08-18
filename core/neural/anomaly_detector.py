@@ -29,9 +29,7 @@ class AnomalyDetector:
         k_sigma: float = 3.0,
         seed: int | None = None,
     ) -> None:
-        self.autoencoder = AutoencoderCompressor(
-            input_size=input_size, bottleneck=bottleneck, hidden=hidden, seed=seed
-        )
+        self.autoencoder = AutoencoderCompressor(input_size=input_size, bottleneck=bottleneck, hidden=hidden, seed=seed)
         self.k_sigma = k_sigma
         self.input_size = input_size
 

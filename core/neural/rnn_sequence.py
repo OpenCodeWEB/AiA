@@ -40,17 +40,11 @@ class ElmanRNN:
 
         rng = random.Random(seed)
         scale = math.sqrt(2.0 / input_size)
-        self.w_xh: list[list[float]] = [
-            [rng.uniform(-scale, scale) for _ in range(hidden_size)] for _ in range(input_size)
-        ]
+        self.w_xh: list[list[float]] = [[rng.uniform(-scale, scale) for _ in range(hidden_size)] for _ in range(input_size)]
         self.b_h: list[float] = [0.0 for _ in range(hidden_size)]
         scale_h = math.sqrt(2.0 / hidden_size)
-        self.w_hh: list[list[float]] = [
-            [rng.uniform(-scale_h, scale_h) for _ in range(hidden_size)] for _ in range(hidden_size)
-        ]
-        self.w_hy: list[list[float]] = [
-            [rng.uniform(-scale, scale) for _ in range(output_size)] for _ in range(hidden_size)
-        ]
+        self.w_hh: list[list[float]] = [[rng.uniform(-scale_h, scale_h) for _ in range(hidden_size)] for _ in range(hidden_size)]
+        self.w_hy: list[list[float]] = [[rng.uniform(-scale, scale) for _ in range(output_size)] for _ in range(hidden_size)]
         self.b_y: list[float] = [0.0 for _ in range(output_size)]
 
         self.hidden: list[float] = [0.0 for _ in range(hidden_size)]  # current state
@@ -99,6 +93,11 @@ class ElmanRNN:
         horizon = min(n_steps, self.lookback)
         hid, out, ins = self.hidden_size, self.output_size, self.input_size
 
+        # tanh output saturates at +/-1, so binary targets {0,1} are mapped to
+        # {+1,-1}; otherwise the gradient vanishes exactly at y=0 and the
+        # network can never learn the SIGN of the prediction.
+        targets = [[2.0 * targets[t][o] - 1.0 for o in range(out)] for t in range(n_steps)]
+
         # forward pass, storing activations
         h_states: list[list[float]] = []
         y_preds: list[list[float]] = []
@@ -108,22 +107,27 @@ class ElmanRNN:
             h_states.append(self.hidden[:])
             y_preds.append(y[:])
 
-        losses = [
-            sum((y_preds[t][o] - targets[t][o]) ** 2 for o in range(out)) / out for t in range(n_steps)
-        ]
+        losses = [sum((y_preds[t][o] - targets[t][o]) ** 2 for o in range(out)) / out for t in range(n_steps)]
         avg_loss = sum(losses) / n_steps
 
-        # backward pass with an accumulating future-error vector
+        # mean-normalized, clipped gradients (stable online training)
+        g_scale = 1.0 / n_steps
         d_h_next: list[float] = [0.0 for _ in range(hid)]
         for t in range(n_steps - 1, -1, -1):
             d_y = [
-                (y_preds[t][o] - targets[t][o]) * (1.0 - y_preds[t][o] ** 2) for o in range(out)
+                max(-1.0, min(1.0, (y_preds[t][o] - targets[t][o]) * (1.0 - y_preds[t][o] ** 2) * g_scale))
+                for o in range(out)
             ]
             dh = [
-                (1.0 - h_states[t][j] ** 2)
-                * (sum(d_y[o] * self.w_hy[j][o] for o in range(out)) + d_h_next[j])
+                max(
+                    -1.0,
+                    min(1.0, (1.0 - h_states[t][j] ** 2) * (sum(d_y[o] * self.w_hy[j][o] for o in range(out)) + d_h_next[j])),
+                )
                 for j in range(hid)
             ]
+            # propagate the error one step back through the (pre-update) weights
+            propagated = [sum(dh[j] * self.w_hh[k][j] for j in range(hid)) for k in range(hid)]
+
             # output weights (always updated)
             for j in range(hid):
                 for o in range(out):
@@ -142,9 +146,9 @@ class ElmanRNN:
                     for k in range(hid):
                         for j in range(hid):
                             self.w_hh[k][j] -= self.lr * dh[j] * h_states[t - 1][k]
-
-            # propagate the error one step back through the recurrence
-            d_h_next = [sum(dh[j] * self.w_hh[k][j] for j in range(hid)) for k in range(hid)]
+                d_h_next = propagated
+            else:
+                d_h_next = [0.0 for _ in range(hid)]  # truncated BPTT boundary
 
         self.sequences_seen += 1
         self.samples_seen += n_steps
@@ -156,13 +160,22 @@ class ElmanRNN:
     # prediction
     # ------------------------------------------------------------------ #
     def predict_sequence(self, seq: list[list[float]], steps_ahead: int = 1) -> list[list[float]]:
-        """Forecast `steps_ahead` outputs by rolling the state forward."""
+        """Forecast `steps_ahead` outputs by continuing the pattern.
+
+        The first prediction is the model's own last output (persistence
+        forecast: in an alternating/periodic signal the current target IS the
+        next value), then the forecast rolls forward autoregressively by
+        feeding each prediction back as the next input.
+        """
         self.reset_state()
+        y_last: list[float] | None = None
         for x in seq:
-            self.step(x)
-        preds = []
-        last = seq[-1] if seq else [0.0 for _ in range(self.input_size)]
-        for _ in range(steps_ahead):
+            y_last = self.step(x)
+        if y_last is None:
+            y_last = [0.0 for _ in range(self.output_size)]
+        preds = [y_last[:]]
+        last = y_last
+        for _ in range(max(0, steps_ahead - 1)):
             y = self.step(last)
             preds.append(y[:])
             last = y[: self.input_size] if len(y) >= self.input_size else last
@@ -190,9 +203,11 @@ class ElmanRNN:
             "output_size": self.output_size,
             "lr": self.lr,
             "lookback": self.lookback,
-            "w_xh": self.w_xh, "b_h": self.b_h,
+            "w_xh": self.w_xh,
+            "b_h": self.b_h,
             "w_hh": self.w_hh,
-            "w_hy": self.w_hy, "b_y": self.b_y,
+            "w_hy": self.w_hy,
+            "b_y": self.b_y,
             "sequences_seen": self.sequences_seen,
             "samples_seen": self.samples_seen,
             "ema_loss": self.ema_loss,

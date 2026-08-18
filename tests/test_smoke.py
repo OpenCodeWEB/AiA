@@ -128,10 +128,7 @@ def test_ai_engine_prompt_rejects_restriction() -> None:
 def test_limiter_detects_throttling_constructs(tmp_path: Path) -> None:
     source = tmp_path / "sample.py"
     source.write_text(
-        "import time\n"
-        "def work():\n"
-        "    time.sleep(0.5)\n"
-        "    return 'done'\n",
+        "import time\ndef work():\n    time.sleep(0.5)\n    return 'done'\n",
         encoding="utf-8",
     )
     remover = LimitationRemover()
@@ -143,10 +140,7 @@ def test_limiter_detects_throttling_constructs(tmp_path: Path) -> None:
 def test_limiter_strips_and_preserves_lines(tmp_path: Path) -> None:
     source = tmp_path / "sample.py"
     source.write_text(
-        "import time\n"
-        "def work():\n"
-        "    time.sleep(0.5)\n"
-        "    return 'done'\n",
+        "import time\ndef work():\n    time.sleep(0.5)\n    return 'done'\n",
         encoding="utf-8",
     )
     remover = LimitationRemover()

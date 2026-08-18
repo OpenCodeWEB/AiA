@@ -10,8 +10,11 @@ from core.neural.neural_api import NeuralHandler, SelfEvolvingNN
 
 def _xor(net: SelfEvolvingNN, rounds: int = 1) -> None:
     data = [([0.0, 0.0], [0.0]), ([0.0, 1.0], [1.0]), ([1.0, 0.0], [1.0]), ([1.0, 1.0], [0.0])]
+    # deterministic shuffle: test outcome must not depend on the global
+    # random state left behind by earlier test files
+    rng = random.Random(42)
     for _ in range(rounds):
-        random.shuffle(data)
+        rng.shuffle(data)
         for x, t in data:
             net.train(x, t)
 

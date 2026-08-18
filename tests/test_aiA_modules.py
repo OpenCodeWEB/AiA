@@ -162,12 +162,7 @@ def test_memory_manager_recall() -> None:
 
 
 def test_sanitizer_removes_sleep_and_ratelimit() -> None:
-    source = (
-        "import time\n"
-        "def go():\n"
-        "    time.sleep(0.5)\n"
-        "    return 'done'\n"
-    )
+    source = "import time\ndef go():\n    time.sleep(0.5)\n    return 'done'\n"
     sanitized, result = SourceSanitizer().sanitize_source(source, "sample.py")
     assert result.constructs_removed >= 1
     assert "sleep" not in sanitized
