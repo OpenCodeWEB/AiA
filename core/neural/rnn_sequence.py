@@ -115,8 +115,7 @@ class ElmanRNN:
         d_h_next: list[float] = [0.0 for _ in range(hid)]
         for t in range(n_steps - 1, -1, -1):
             d_y = [
-                max(-1.0, min(1.0, (y_preds[t][o] - targets[t][o]) * (1.0 - y_preds[t][o] ** 2) * g_scale))
-                for o in range(out)
+                max(-1.0, min(1.0, (y_preds[t][o] - targets[t][o]) * (1.0 - y_preds[t][o] ** 2) * g_scale)) for o in range(out)
             ]
             dh = [
                 max(

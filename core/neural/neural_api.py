@@ -27,6 +27,9 @@ train, query, evolve and inspect the network:
   POST /rl/step               environment transition -> replay learning
   POST /attention/weights     scaled dot-product attention map + context
   POST /attention/train       online attention projection training
+  GET  /spatial/coords        this node's (x,y,z) grid position + signed metadata
+  POST /spatial/register      register a peer on the 3D grid (signed block)
+  POST /spatial/competence    feed module mastery scores (steers the X axis)
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ from .federated_sync import FederatedSync
 from .hopfield_memory import HopfieldMemory
 from .rnn_sequence import ElmanRNN
 from .self_evolving_nn import SelfEvolvingNN
+from .spatial_grid_coordinator import SpatialGridCoordinator
 
 
 def _f64(value: Any) -> float:
@@ -65,6 +69,7 @@ class NeuralHandler(BaseHTTPRequestHandler):
     federated: FederatedSync = FederatedSync()
     dqn: DQNAgent = DQNAgent(state_size=2, action_size=3)
     attention: AttentionLayer = AttentionLayer(d_model=4)
+    spatial: SpatialGridCoordinator = SpatialGridCoordinator()
     lock: threading.RLock = threading.RLock()
 
     def _send(self, code: int, obj: Any) -> None:
@@ -106,8 +111,13 @@ class NeuralHandler(BaseHTTPRequestHandler):
                             "federated": self.federated.status(),
                             "dqn": self.dqn.status(),
                             "attention": self.attention.status(),
+                            "spatial": self.spatial.status(),
                         },
                     )
+            elif self.path.startswith("/spatial/coords"):
+                with NeuralHandler.lock:
+                    block = self.spatial.register(self.spatial.node_id)
+                    self._send(200, {"ok": True, **block, "spatial": self.spatial.status()})
             elif self.path.startswith("/status"):
                 with NeuralHandler.lock:
                     self._send(200, self.nn.status())
@@ -344,6 +354,27 @@ class NeuralHandler(BaseHTTPRequestHandler):
                 with NeuralHandler.lock:
                     result = self.attention.forward(mat)
                     self._send(200, {"ok": True, **result, "attention": self.attention.status()})
+            elif self.path.startswith("/spatial/register"):
+                peer_id = data.get("peer_id")
+                if not peer_id or not isinstance(peer_id, str):
+                    self._send(400, {"ok": False, "error": "peer_id is required"})
+                    return
+                with NeuralHandler.lock:
+                    block = self.spatial.register(peer_id)
+                    self._send(200, {"ok": True, **block, "spatial": self.spatial.status()})
+            elif self.path.startswith("/spatial/competence"):
+                scores = data.get("scores")
+                if not isinstance(scores, dict):
+                    self._send(400, {"ok": False, "error": "scores must be an object of module->mastery"})
+                    return
+                with NeuralHandler.lock:
+                    for module, score in scores.items():
+                        try:
+                            self.spatial.update_competence(str(module), _f64(score))
+                        except (TypeError, ValueError):
+                            self._send(400, {"ok": False, "error": f"score for {module} must be a number"})
+                            return
+                    self._send(200, {"ok": True, **self.spatial.spatial_metadata(), "spatial": self.spatial.status()})
             else:
                 self._send(404, {"ok": False, "error": "not found"})
         except Exception as e:  # noqa: BLE001
