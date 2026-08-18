@@ -51,3 +51,5 @@ infinite_memory.json
 learned_patterns.json
 user_profile.json
 *.json.tmp
+
+.wrangler/
