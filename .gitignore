@@ -53,3 +53,6 @@ user_profile.json
 *.json.tmp
 
 .wrangler/
+
+.worktrees/
+
