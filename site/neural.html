@@ -49,9 +49,9 @@
   .stat .value.good { color: var(--good); }
   .stat .value.accent { color: var(--accent); }
   .stat .value.warn { color: var(--warn); }
-  .panel { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+  .panel { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 18px; }
   @media (max-width: 860px) { .panel { grid-template-columns: 1fr; } }
-  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; min-width: 0; }
   .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted); margin-bottom: 12px; }
   canvas { width: 100%; border-radius: 10px; border: 1px solid var(--border); background: var(--bg2); display: block; }
   .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
@@ -61,23 +61,23 @@
     transition: all .15s;
   }
   button:hover { border-color: var(--accent); color: var(--accent); }
-  button.primary { background: linear-gradient(90deg, rgba(76,194,255,.2), rgba(157,123,255,.2)); border-color: var(--accent); }
+  button.primary { background: linear-gradient(90deg, rgba(76,194,255,.2), rgba(157,123,255,.2)); border-color: var(--accent); min-width: 96px; }
   button.primary:hover { background: linear-gradient(90deg, rgba(76,194,255,.32), rgba(157,123,255,.32)); color: var(--text); }
   select {
     background: var(--bg2); color: var(--text); border: 1px solid var(--border);
     padding: 8px 12px; border-radius: 9px; font-size: 13px; cursor: pointer;
   }
   .hint { font-size: 12px; color: var(--muted); margin-top: 12px; }
-  .log { max-height: 210px; overflow-y: auto; font-family: Consolas, monospace; font-size: 12px; color: var(--muted); }
+  .log { height: 210px; overflow-y: auto; font-family: Consolas, monospace; font-size: 12px; color: var(--muted); }
   .log div { padding: 3px 0; border-bottom: 1px dashed rgba(34,48,72,.5); }
   .log .ev { color: var(--accent2); }
   .log .good { color: var(--good); }
-  .arch { display: flex; align-items: flex-end; gap: 6px; margin-top: 10px; min-height: 90px; }
-  .layer { display: flex; align-items: flex-end; gap: 3px; }
-  .layer .node { background: linear-gradient(180deg, var(--accent), var(--accent2)); width: 16px; border-radius: 4px 4px 0 0; min-height: 4px; transition: height .4s ease; }
+  .arch { display: flex; align-items: flex-end; gap: 6px; margin-top: 10px; min-height: 90px; overflow: hidden; }
+  .layer { flex: 1 1 0; display: flex; align-items: flex-end; gap: 3px; min-width: 0; }
+  .layer .node { flex: 1 1 0; min-width: 2px; max-width: 18px; background: linear-gradient(180deg, var(--accent), var(--accent2)); border-radius: 4px 4px 0 0; min-height: 4px; transition: height .4s ease; }
   .layer .node.in { background: var(--muted); }
   .layer .node.out { background: var(--good); }
-  .layer-cap { font-size: 11px; color: var(--muted); margin-left: 2px; align-self: flex-end; padding-bottom: 2px; font-variant-numeric: tabular-nums; }
+  .layer-cap { flex: 0 0 auto; font-size: 11px; color: var(--muted); margin-left: 2px; align-self: flex-end; padding-bottom: 2px; font-variant-numeric: tabular-nums; }
   footer { text-align: center; color: var(--muted); font-size: 12px; padding: 34px 0 26px; }
   footer a { color: var(--accent); text-decoration: none; }
 </style>
@@ -272,8 +272,7 @@ const brain = new Brain();
 const $ = id => document.getElementById(id);
 const grid = $("grid"), gctx = grid.getContext("2d");
 const chart = $("chart"), cctx = chart.getContext("2d");
-const GX = 40, GY = 30, CW = grid.width / GX, CH = grid.height / GY;
-let running = true, custom = [];
+let running = true, custom = [], lastGen = -1;
 const lossHist = [];
 
 function logLine(msg, cls) {
@@ -284,17 +283,32 @@ function logLine(msg, cls) {
   while ($("log").children.length > 60) $("log").removeChild($("log").lastChild);
 }
 
+/* ---------- stable rendering (change-detection + adaptive resolution) ---------- */
+
+/* designed color gradient: deep navy -> accent2 purple -> accent blue */
+const C0 = [22, 30, 58], C1 = [157, 123, 255], C2 = [76, 194, 255];
+function lerp3(a, b, t) { return [a[0] + (b[0]-a[0])*t, a[1] + (b[1]-a[1])*t, a[2] + (b[2]-a[2])*t]; }
+function predColor(p) {
+  const c = p < 0.5 ? lerp3(C0, C1, p*2) : lerp3(C1, C2, (p-0.5)*2);
+  return `rgb(${Math.round(c[0])},${Math.round(c[1])},${Math.round(c[2])})`;
+}
+/* adaptive resolution: keep the page smooth as the brain grows */
+function gridRes() {
+  const totalW = brain.w.reduce((s, m) => s + m.length * m[0].length, 0);
+  if (totalW > 6000) return [18, 13];
+  if (totalW > 2500) return [26, 19];
+  return [40, 30];
+}
+
 function drawGrid() {
+  const [gx, gy] = gridRes();
+  const cw = grid.width / gx, ch = grid.height / gy;
   gctx.clearRect(0, 0, grid.width, grid.height);
-  for (let gx = 0; gx < GX; gx++) {
-    for (let gy = 0; gy < GY; gy++) {
-      const x = (gx / (GX-1)) * 2 - 1, y = 1 - (gy / (GY-1)) * 2;
-      const p = brain.forward([x, y])[0];
-      const r = Math.round(76 + (76 - 76) * p + 60 * p);
-      const g = Math.round(194 + (157 - 194) * p);
-      const b = Math.round(255 + (123 - 255) * p);
-      gctx.fillStyle = `rgb(${r},${g},${b})`;
-      gctx.fillRect(gx*CW, gy*CH, CW+0.5, CH+0.5);
+  for (let i = 0; i < gx; i++) {
+    for (let j = 0; j < gy; j++) {
+      const x = (i / (gx-1)) * 2 - 1, y = 1 - (j / (gy-1)) * 2;
+      gctx.fillStyle = predColor(brain.forward([x, y])[0]);
+      gctx.fillRect(i*cw, j*ch, cw+0.5, ch+0.5);
     }
   }
   // training dots
@@ -311,7 +325,10 @@ function drawGrid() {
   }
 }
 
+let chartLen = -1;
 function drawChart() {
+  if (lossHist.length === chartLen) return;  // redraw only when a new loss arrives
+  chartLen = lossHist.length;
   cctx.clearRect(0, 0, chart.width, chart.height);
   cctx.strokeStyle = "#4cc2ff"; cctx.lineWidth = 2; cctx.beginPath();
   const n = lossHist.length;
@@ -323,17 +340,17 @@ function drawChart() {
   cctx.stroke();
 }
 
-let lastArchSig = "";
+let archSig = "";
 function drawArch() {
   const sig = brain.input + "|" + brain.hidden.join("x") + "|" + brain.output;
-  if (sig === lastArchSig) return; // only re-render when the architecture changes
-  lastArchSig = sig;
+  if (sig === archSig) return; // bars are stable until the brain evolves
+  archSig = sig;
   const el = $("arch"); el.innerHTML = "";
   const sizes = [brain.input, ...brain.hidden, brain.output];
   sizes.forEach((s, i) => {
     const group = document.createElement("div");
     group.className = "layer";
-    for (let k = 0; k < Math.min(s, 24); k++) {
+    for (let k = 0; k < Math.min(s, 12); k++) {
       const d = document.createElement("div");
       d.className = "node" + (i === 0 ? " in" : i === sizes.length - 1 ? " out" : "");
       // deterministic heights - stable visual, changes only on evolution
@@ -358,7 +375,9 @@ function refreshStats() {
   $("stEvo").textContent = brain.evolutions;
 }
 
+let frame = 0;
 function tick() {
+  frame++;
   if (!running) { requestAnimationFrame(tick); return; }
   const speed = parseInt($("selSpeed").value, 10);
   for (let i = 0; i < speed; i++) {
@@ -368,10 +387,12 @@ function tick() {
     if (lossHist.length > 240) lossHist.shift();
     if (brain.samples % 5 === 0) brain.replayPass(3);
   }
-  if (brain.gen > 0 && brain.gen !== parseInt($("stGen").textContent, 10)) {
+  if (brain.gen > 0 && brain.gen !== lastGen) {
+    lastGen = brain.gen;
     logLine(brain.evoLog[brain.evoLog.length-1], "ev");
   }
-  drawGrid(); drawChart(); drawArch(); refreshStats();
+  if (frame % 2 === 0) drawGrid();  // heavy map redrawn at ~30fps to stay smooth
+  drawChart(); drawArch(); refreshStats();
   requestAnimationFrame(tick);
 }
 
@@ -392,7 +413,7 @@ $("btnRun").onclick = () => {
 };
 $("btnEvolve").onclick = () => { brain.evolve("manual"); logLine(brain.evoLog[brain.evoLog.length-1], "ev"); };
 $("btnReset").onclick = () => {
-  brain.reset(); custom = []; lossHist.length = 0;
+  brain.reset(); custom = []; lossHist.length = 0; chartLen = -1; archSig = "";
   logLine("brain reset — generation 0", "good");
 };
 ["selPattern", "selSpeed"].forEach(id => $(id).addEventListener("change", () => {
