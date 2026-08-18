@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AiA Neural Lab - Self-Evolving Neural Network</title>
+<meta name="description" content="Watch AiA's self-evolving neural network improve itself in real time: online learning, adaptive learning rate, experience replay and architecture evolution - right in your browser.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%A7%A0%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #0a0e14;
+    --bg2: #10161f;
+    --card: #141c28;
+    --border: #223048;
+    --text: #dbe4f0;
+    --muted: #8aa0bd;
+    --accent: #4cc2ff;
+    --accent2: #9d7bff;
+    --good: #3ddc97;
+    --warn: #ffb454;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    background:
+      radial-gradient(900px 500px at 85% -10%, rgba(157,123,255,.16), transparent 60%),
+      radial-gradient(900px 500px at 10% 0%, rgba(76,194,255,.14), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 40px; border-bottom: 1px solid var(--border);
+  }
+  .brand { font-size: 22px; font-weight: 700; letter-spacing: .5px; }
+  .brand span { color: var(--accent); }
+  header a { color: var(--muted); text-decoration: none; font-size: 14px; }
+  header a:hover { color: var(--text); }
+  main { max-width: 1100px; margin: 0 auto; padding: 48px 24px 40px; }
+  .hero h1 { font-size: 34px; font-weight: 800; letter-spacing: .3px; }
+  .hero h1 span { background: linear-gradient(90deg, var(--accent), var(--accent2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero p { color: var(--muted); margin-top: 8px; max-width: 760px; font-size: 15px; }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; margin: 28px 0; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; }
+  .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px; color: var(--muted); }
+  .stat .value { font-size: 24px; font-weight: 700; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .stat .value.good { color: var(--good); }
+  .stat .value.accent { color: var(--accent); }
+  .stat .value.warn { color: var(--warn); }
+  .panel { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; }
+  @media (max-width: 860px) { .panel { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; }
+  .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 1.4px; color: var(--muted); margin-bottom: 12px; }
+  canvas { width: 100%; border-radius: 10px; border: 1px solid var(--border); background: var(--bg2); display: block; }
+  .controls { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+  button {
+    background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 16px; border-radius: 9px; font-size: 13px; cursor: pointer; font-weight: 600;
+    transition: all .15s;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button.primary { background: linear-gradient(90deg, rgba(76,194,255,.2), rgba(157,123,255,.2)); border-color: var(--accent); }
+  button.primary:hover { background: linear-gradient(90deg, rgba(76,194,255,.32), rgba(157,123,255,.32)); color: var(--text); }
+  select {
+    background: var(--bg2); color: var(--text); border: 1px solid var(--border);
+    padding: 8px 12px; border-radius: 9px; font-size: 13px; cursor: pointer;
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 12px; }
+  .log { max-height: 210px; overflow-y: auto; font-family: Consolas, monospace; font-size: 12px; color: var(--muted); }
+  .log div { padding: 3px 0; border-bottom: 1px dashed rgba(34,48,72,.5); }
+  .log .ev { color: var(--accent2); }
+  .log .good { color: var(--good); }
+  .arch { display: flex; align-items: flex-end; gap: 6px; margin-top: 10px; min-height: 90px; }
+  .arch .node { background: linear-gradient(180deg, var(--accent), var(--accent2)); width: 22px; border-radius: 4px 4px 0 0; min-height: 4px; transition: height .4s ease; }
+  .arch .node.in { background: var(--muted); }
+  .arch .node.out { background: var(--good); }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 34px 0 26px; }
+  footer a { color: var(--accent); text-decoration: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">AiA <span>Neural Lab</span></div>
+  <a href="/">← Back to AiA</a>
+</header>
+<main>
+  <section class="hero">
+    <h1>Self-<span>Evolving</span> Neural Network</h1>
+    <p>This is AiA's brain, running live in your browser. It learns from every sample, remembers its experience, adapts its learning rate, and when it gets stuck it <b>evolves its own architecture</b> - growing new neurons. You are watching a network improve itself in real time. (Python twin: <code>core/neural/</code> in the AiA repo.)</p>
+  </section>
+
+  <section class="stats">
+    <div class="stat"><div class="label">Accuracy</div><div class="value good" id="stAcc">0%</div></div>
+    <div class="stat"><div class="label">Loss</div><div class="value accent" id="stLoss">—</div></div>
+    <div class="stat"><div class="label">Generation</div><div class="value warn" id="stGen">0</div></div>
+    <div class="stat"><div class="label">Samples</div><div class="value" id="stSamples">0</div></div>
+    <div class="stat"><div class="label">Neurons</div><div class="value" id="stNeurons">0</div></div>
+    <div class="stat"><div class="label">Evolutions</div><div class="value" id="stEvo">0</div></div>
+  </section>
+
+  <section class="panel">
+    <div class="card">
+      <h2>Prediction map · click the map to teach it</h2>
+      <canvas id="grid" width="560" height="420"></canvas>
+      <div class="controls">
+        <button id="btnRun" class="primary">⏸ Pause</button>
+        <button id="btnEvolve">🧬 Force evolve</button>
+        <button id="btnReset">↺ Reset brain</button>
+        <select id="selPattern">
+          <option value="xor">Pattern: XOR</option>
+          <option value="and">Pattern: AND</option>
+          <option value="or">Pattern: OR</option>
+          <option value="sine">Pattern: SINE wave</option>
+          <option value="mixed">Pattern: MIXED freeform</option>
+        </select>
+        <select id="selSpeed">
+          <option value="1">Speed: 1×</option>
+          <option value="2" selected>Speed: 2×</option>
+          <option value="4">Speed: 4×</option>
+          <option value="8">Speed: 8×</option>
+        </select>
+      </div>
+      <div class="hint">Blue cells = predicted 1 · purple = predicted 0 · colored dots are training samples (blue = 1, red = 0). Click a cell to drop your own teaching sample.</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:18px;">
+      <div class="card">
+        <h2>Loss curve</h2>
+        <canvas id="chart" width="560" height="180"></canvas>
+        <div class="arch" id="arch"></div>
+        <div class="hint">Each bar = one neuron in a layer (input · hidden · output). Bars grow when the network evolves.</div>
+      </div>
+      <div class="card">
+        <h2>Evolution log</h2>
+        <div class="log" id="log"></div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>AiA · <a href="https://github.com/OpenCodeWEB/AiA">github.com/OpenCodeWEB/AiA</a> · self-improving since generation 0</footer>
+
+<script>
+"use strict";
+/* ---------- tiny self-evolving MLP (vanilla JS, no deps) ---------- */
+const tanh = Math.tanh;
+const sig = x => x < -30 ? 0 : 1 / (1 + Math.exp(-x));
+
+class Brain {
+  constructor(input = 2, hidden = [5], output = 1, lr = 0.12) {
+    this.input = input; this.output = output; this.hidden = hidden; this.lr = lr;
+    this.gen = 0; this.samples = 0; this.evolutions = 0; this.evoLog = [];
+    this.ema = null; this.best = null; this.stuck = 0; this.patience = 60;
+    this.replay = []; this.replayCap = 1500; this.evalW = [];
+    this.w = []; this.b = [];
+    const sizes = [input, ...hidden, output];
+    for (let i = 0; i < sizes.length - 1; i++) {
+      const scale = Math.sqrt(2 / sizes[i]);
+      this.w.push(Array.from({length: sizes[i]}, () => Array.from({length: sizes[i+1]}, () => (Math.random()*2-1)*scale)));
+      this.b.push(new Array(sizes[i+1]).fill(0));
+    }
+  }
+  forward(x) {
+    let a = x.slice();
+    for (let l = 0; l < this.w.length - 1; l++) {
+      a = this.w[l][0].map((_, j) => tanh(this.w[l].reduce((s, row, i) => s + row[j]*a[i], this.b[l][j])));
+    }
+    const l = this.w.length - 1;
+    return this.w[l][0].map((_, j) => sig(this.w[l].reduce((s, row, i) => s + row[j]*a[i], this.b[l][j])));
+  }
+  train(x, t) {
+    const acts = [x.slice()];
+    for (let l = 0; l < this.w.length - 1; l++) {
+      const a = this.w[l][0].map((_, j) => tanh(this.w[l].reduce((s, row, i) => s + row[j]*acts[acts.length-1][i], this.b[l][j])));
+      acts.push(a);
+    }
+    const out = this.w[this.w.length-1][0].map((_, j) => sig(this.w[this.w.length-1].reduce((s, row, i) => s + row[j]*acts[acts.length-1][i], this.b[this.b.length-1][j])));
+    acts.push(out);
+    const loss = out.reduce((s, p, i) => s + (p - t[i])**2, 0) / t.length;
+    // backward
+    const deltas = new Array(this.w.length);
+    deltas[deltas.length-1] = out.map((p, i) => 2*(p - t[i])*p*(1-p) / t.length);
+    for (let l = this.w.length - 2; l >= 0; l--) {
+      const incoming = deltas[l+1];
+      deltas[l] = acts[l+1].map((_, j) => incoming.reduce((s, k, kk) => s + k*this.w[l+1][j][kk], 0) * (1 - acts[l+1][j]**2));
+    }
+    for (let l = 0; l < this.w.length; l++) {
+      const a = acts[l];
+      for (let i = 0; i < a.length; i++)
+        for (let j = 0; j < deltas[l].length; j++)
+          this.w[l][i][j] -= this.lr * a[i] * deltas[l][j];
+      for (let j = 0; j < deltas[l].length; j++)
+        this.b[l][j] -= this.lr * deltas[l][j];
+    }
+    this.samples++;
+    this.replay.push([x.slice(), t.slice()]);
+    if (this.replay.length > this.replayCap) this.replay.shift();
+    this.evalW.push([x.slice(), t.slice()]);
+    if (this.evalW.length > 80) this.evalW.shift();
+    // adaptive lr + plateau -> evolve
+    if (this.ema === null) { this.ema = loss; this.best = loss; return loss; }
+    this.ema = 0.98*this.ema + 0.02*loss;
+    if (this.ema < this.best * 0.9995) {
+      this.best = this.ema; this.stuck = 0;
+      this.lr = Math.min(this.lr * 1.01, 0.5);
+    } else {
+      this.stuck++;
+      this.lr = Math.max(this.lr * 0.995, 1e-4);
+      if (this.stuck >= this.patience) this.evolve("plateau");
+    }
+    return loss;
+  }
+  replayPass(n = 12) {
+    if (this.replay.length < 2) return;
+    for (let k = 0; k < n; k++) {
+      const [x, t] = this.replay[(Math.random()*this.replay.length)|0];
+      this.train(x, t);
+    }
+  }
+  evalScore() {
+    if (!this.evalW.length) return null;
+    let ok = 0;
+    for (const [x, t] of this.evalW) {
+      const p = this.forward(x);
+      if (p.every((v, i) => (v >= 0.5) === (t[i] >= 0.5))) ok++;
+    }
+    return ok / this.evalW.length;
+  }
+  evolve(reason) {
+    this.gen++; this.stuck = 0; this.evolutions++;
+    const layerIdx = (this.gen - 1) % this.hidden.length;
+    const old = this.hidden[layerIdx];
+    const neu = Math.min(old + 2, 128);
+    let action = "grow";
+    if (neu === old) {
+      if (this.hidden.length < 5) {
+        this.hidden.push(2); action = "add_layer";
+        const prevIn = this.w[this.w.length-1].length;
+        const scale = Math.sqrt(2 / prevIn);
+        this.w.splice(this.w.length-1, 0, Array.from({length: prevIn}, () => Array.from({length: 2}, () => (Math.random()*2-1)*scale)));
+        this.b.splice(this.b.length-1, 0, [0, 0]);
+      } else { action = "reset_weights"; this.w.forEach(m => m.forEach(r => r.forEach((_, i) => r[i] = (Math.random()*2-1)*0.15))); }
+    } else {
+      this.hidden[layerIdx] = neu;
+      this.w[layerIdx].forEach(row => { for (let k = 0; k < 2; k++) row.push((Math.random()*2-1)*0.3); });
+      this.b[layerIdx].push(0, 0);
+      this.w[layerIdx+1].push(...Array.from({length: 2}, () => Array.from({length: this.w[layerIdx+1][0].length}, () => (Math.random()*2-1)*0.3)));
+    }
+    this.evoLog.push(`gen${this.gen}: ${action} (${reason}) → [${this.hidden.join(',')}]`);
+  }
+  reset() { this.w = []; this.b = []; const s = [this.input, ...this.hidden, this.output]; for (let i = 0; i < s.length-1; i++) { const sc = Math.sqrt(2/s[i]); this.w.push(Array.from({length: s[i]}, () => Array.from({length: s[i+1]}, () => (Math.random()*2-1)*sc))); this.b.push(new Array(s[i+1]).fill(0)); } this.gen = 0; this.samples = 0; this.evolutions = 0; this.ema = null; this.best = null; this.stuck = 0; this.replay = []; this.evalW = []; this.evoLog = []; this.lr = 0.12; }
+}
+
+/* ---------- pattern factory ---------- */
+const SAMPLE_SETS = {
+  xor:  [ [[-1,-1],[0]], [[-1,1],[1]], [[1,-1],[1]], [[1,1],[0]] ],
+  and:  [ [[-1,-1],[0]], [[-1,1],[0]], [[1,-1],[0]], [[1,1],[1]] ],
+  or:   [ [[-1,-1],[0]], [[-1,1],[1]], [[1,-1],[1]], [[1,1],[1]] ],
+  sine: [ [[-1,-1],[0]], [[-0.5,-1],[0]], [[0,1],[1]], [[0.5,-1],[0]], [[1,1],[1]], [[-1,1],[1]] ],
+  mixed:[ [[-1,-1],[1]], [[-1,0],[0]], [[-1,1],[0]], [[0,-1],[1]], [[0,0],[0]], [[0,1],[1]], [[1,-1],[0]], [[1,0],[1]], [[1,1],[0]] ],
+};
+function patternSample() {
+  const set = SAMPLE_SETS[document.getElementById("selPattern").value] || SAMPLE_SETS.xor;
+  return set[(Math.random()*set.length)|0].map(v => (typeof v === "number") ? v : v.slice());
+}
+
+/* ---------- UI ---------- */
+const brain = new Brain();
+const $ = id => document.getElementById(id);
+const grid = $("grid"), gctx = grid.getContext("2d");
+const chart = $("chart"), cctx = chart.getContext("2d");
+const GX = 40, GY = 30, CW = grid.width / GX, CH = grid.height / GY;
+let running = true, custom = [];
+const lossHist = [];
+
+function logLine(msg, cls) {
+  const d = document.createElement("div");
+  if (cls) d.className = cls;
+  d.textContent = msg;
+  $("log").prepend(d);
+  while ($("log").children.length > 60) $("log").removeChild($("log").lastChild);
+}
+
+function drawGrid() {
+  gctx.clearRect(0, 0, grid.width, grid.height);
+  for (let gx = 0; gx < GX; gx++) {
+    for (let gy = 0; gy < GY; gy++) {
+      const x = (gx / (GX-1)) * 2 - 1, y = 1 - (gy / (GY-1)) * 2;
+      const p = brain.forward([x, y])[0];
+      const r = Math.round(76 + (76 - 76) * p + 60 * p);
+      const g = Math.round(194 + (157 - 194) * p);
+      const b = Math.round(255 + (123 - 255) * p);
+      gctx.fillStyle = `rgb(${r},${g},${b})`;
+      gctx.fillRect(gx*CW, gy*CH, CW+0.5, CH+0.5);
+    }
+  }
+  // training dots
+  for (const [x, t] of brain.evalW.slice(-200)) {
+    const px = (x[0]+1)/2 * grid.width, py = (1-(x[1]+1)/2) * grid.height;
+    gctx.beginPath(); gctx.arc(px, py, 5, 0, Math.PI*2);
+    gctx.fillStyle = t[0] >= 0.5 ? "#4cc2ff" : "#ff6b6b";
+    gctx.fill(); gctx.strokeStyle = "#0a0e14"; gctx.lineWidth = 1.5; gctx.stroke();
+  }
+  for (const [x, t] of custom) {
+    const px = (x[0]+1)/2 * grid.width, py = (1-(x[1]+1)/2) * grid.height;
+    gctx.beginPath(); gctx.arc(px, py, 7, 0, Math.PI*2);
+    gctx.strokeStyle = t[0] >= 0.5 ? "#4cc2ff" : "#ff6b6b"; gctx.lineWidth = 3; gctx.stroke();
+  }
+}
+
+function drawChart() {
+  cctx.clearRect(0, 0, chart.width, chart.height);
+  cctx.strokeStyle = "#4cc2ff"; cctx.lineWidth = 2; cctx.beginPath();
+  const n = lossHist.length;
+  for (let i = 0; i < n; i++) {
+    const x = (i / Math.max(n-1, 1)) * chart.width;
+    const y = chart.height - Math.min(lossHist[i] * 60, chart.height);
+    i === 0 ? cctx.moveTo(x, y) : cctx.lineTo(x, y);
+  }
+  cctx.stroke();
+}
+
+function drawArch() {
+  const el = $("arch"); el.innerHTML = "";
+  const sizes = [brain.input, ...brain.hidden, brain.output];
+  sizes.forEach((s, i) => {
+    for (let k = 0; k < Math.min(s, 22); k++) {
+      const d = document.createElement("div");
+      d.className = "node" + (i === 0 ? " in" : i === sizes.length-1 ? " out" : "");
+      d.style.height = (14 + Math.random()*34) + "px";
+      el.appendChild(d);
+    }
+  });
+}
+
+function refreshStats() {
+  const acc = brain.evalScore();
+  $("stAcc").textContent = acc === null ? "—" : Math.round(acc*100) + "%";
+  $("stLoss").textContent = brain.ema === null ? "—" : brain.ema.toFixed(4);
+  $("stGen").textContent = brain.gen;
+  $("stSamples").textContent = brain.samples.toLocaleString();
+  $("stNeurons").textContent = brain.hidden.reduce((a,b) => a+b, 0);
+  $("stEvo").textContent = brain.evolutions;
+}
+
+function tick() {
+  if (!running) { requestAnimationFrame(tick); return; }
+  const speed = parseInt($("selSpeed").value, 10);
+  for (let i = 0; i < speed; i++) {
+    const [x, t] = patternSample();
+    const loss = brain.train(x, t);
+    lossHist.push(loss);
+    if (lossHist.length > 240) lossHist.shift();
+    if (brain.samples % 5 === 0) brain.replayPass(3);
+  }
+  if (brain.gen > 0 && brain.gen !== parseInt($("stGen").textContent, 10)) {
+    logLine(brain.evoLog[brain.evoLog.length-1], "ev");
+  }
+  drawGrid(); drawChart(); drawArch(); refreshStats();
+  requestAnimationFrame(tick);
+}
+
+/* interactions */
+grid.addEventListener("click", e => {
+  const rect = grid.getBoundingClientRect();
+  const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+  const y = 1 - ((e.clientY - rect.top) / rect.height) * 2;
+  const t = e.shiftKey ? 0 : 1;
+  custom.push([[x, y], [t]]);
+  if (custom.length > 40) custom.shift();
+  for (let i = 0; i < 6; i++) brain.train([x, y], [t]);
+  logLine(`manual teach: (${x.toFixed(2)}, ${y.toFixed(2)}) → ${t}`, "good");
+});
+$("btnRun").onclick = () => {
+  running = !running;
+  $("btnRun").textContent = running ? "⏸ Pause" : "▶ Run";
+};
+$("btnEvolve").onclick = () => { brain.evolve("manual"); logLine(brain.evoLog[brain.evoLog.length-1], "ev"); };
+$("btnReset").onclick = () => {
+  brain.reset(); custom = []; lossHist.length = 0;
+  logLine("brain reset — generation 0", "good");
+};
+["selPattern", "selSpeed"].forEach(id => $(id).addEventListener("change", () => {
+  logLine(`pattern → ${$("selPattern").options[$("selPattern").selectedIndex].text}`, "");
+}));
+
+logLine("brain booted — learning continuously. it will evolve when it gets stuck.", "ev");
+tick();
+</script>
+</body>
+</html>
