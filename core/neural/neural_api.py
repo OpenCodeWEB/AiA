@@ -30,6 +30,10 @@ train, query, evolve and inspect the network:
   GET  /spatial/coords        this node's (x,y,z) grid position + signed metadata
   POST /spatial/register      register a peer on the 3D grid (signed block)
   POST /spatial/competence    feed module mastery scores (steers the X axis)
+  POST /spatial/cluster/heartbeat   announce a peer in this Y-region
+  GET  /spatial/cluster       cluster status + elected regional anchor
+  POST /spatial/sync/pulse    ingest a spatially filtered signed weight delta
+  GET  /spatial/sync          spatial sync status (pulses, rejections, queue)
 """
 
 from __future__ import annotations
@@ -42,6 +46,7 @@ from typing import Any
 from .anomaly_detector import AnomalyDetector
 from .attention_layer import AttentionLayer
 from .autoencoder_compressor import AutoencoderCompressor
+from .cluster_heartbeat_election import ClusterHeartbeatElection
 from .curriculum_controller import CurriculumController
 from .dqn_agent import DQNAgent
 from .federated_sync import FederatedSync
@@ -49,6 +54,7 @@ from .hopfield_memory import HopfieldMemory
 from .rnn_sequence import ElmanRNN
 from .self_evolving_nn import SelfEvolvingNN
 from .spatial_grid_coordinator import SpatialGridCoordinator
+from .spatial_temporal_sync import SpatialTemporalSync
 
 
 def _f64(value: Any) -> float:
@@ -70,6 +76,8 @@ class NeuralHandler(BaseHTTPRequestHandler):
     dqn: DQNAgent = DQNAgent(state_size=2, action_size=3)
     attention: AttentionLayer = AttentionLayer(d_model=4)
     spatial: SpatialGridCoordinator = SpatialGridCoordinator()
+    cluster: ClusterHeartbeatElection = ClusterHeartbeatElection()
+    spatial_sync: SpatialTemporalSync = SpatialTemporalSync()
     lock: threading.RLock = threading.RLock()
 
     def _send(self, code: int, obj: Any) -> None:
@@ -112,12 +120,21 @@ class NeuralHandler(BaseHTTPRequestHandler):
                             "dqn": self.dqn.status(),
                             "attention": self.attention.status(),
                             "spatial": self.spatial.status(),
+                            "cluster": self.cluster.status(),
+                            "spatial_sync": self.spatial_sync.status(),
                         },
                     )
             elif self.path.startswith("/spatial/coords"):
                 with NeuralHandler.lock:
                     block = self.spatial.register(self.spatial.node_id)
                     self._send(200, {"ok": True, **block, "spatial": self.spatial.status()})
+            elif self.path.startswith("/spatial/cluster"):
+                with NeuralHandler.lock:
+                    self._send(200, {"ok": True, **self.cluster.status()})
+            elif self.path.startswith("/spatial/sync"):
+                with NeuralHandler.lock:
+                    self.spatial_sync.set_coords(self.spatial.coords())
+                    self._send(200, {"ok": True, **self.spatial_sync.status()})
             elif self.path.startswith("/status"):
                 with NeuralHandler.lock:
                     self._send(200, self.nn.status())
@@ -375,6 +392,40 @@ class NeuralHandler(BaseHTTPRequestHandler):
                             self._send(400, {"ok": False, "error": f"score for {module} must be a number"})
                             return
                     self._send(200, {"ok": True, **self.spatial.spatial_metadata(), "spatial": self.spatial.status()})
+            elif self.path.startswith("/spatial/cluster/heartbeat"):
+                peer_id = data.get("peer_id")
+                coords = data.get("coords")
+                if not peer_id or not isinstance(coords, dict):
+                    self._send(400, {"ok": False, "error": "peer_id and coords are required"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.cluster.heartbeat(
+                        str(peer_id),
+                        {"x": coords.get("x", 0), "y": coords.get("y", 0), "z": coords.get("z", 0)},
+                        stage=int(coords.get("z", 0)),
+                    )
+                    self._send(200, {"ok": True, **result, "cluster": self.cluster.status()})
+            elif self.path.startswith("/spatial/sync/pulse"):
+                peer_id = data.get("peer_id")
+                coords = data.get("coords")
+                update = data.get("update")
+                if not peer_id or not isinstance(coords, dict) or not isinstance(update, dict):
+                    self._send(400, {"ok": False, "error": "peer_id, coords and update are required"})
+                    return
+                with NeuralHandler.lock:
+                    self.spatial_sync.set_coords(self.spatial.coords())
+                    accepted = self.spatial_sync.ingest(
+                        str(peer_id),
+                        {"x": coords.get("x", 0), "y": coords.get("y", 0), "z": coords.get("z", 0)},
+                        update,
+                        secret=self.federated.secret,
+                    )
+                    self._send(200, {"ok": True, "accepted": accepted, "spatial_sync": self.spatial_sync.status()})
+            elif self.path.startswith("/spatial/sync/aggregate"):
+                with NeuralHandler.lock:
+                    self.spatial_sync.set_coords(self.spatial.coords())
+                    report = self.spatial_sync.aggregate(self.nn.weights, self.nn.biases)
+                    self._send(200, {"ok": True, **report, "spatial_sync": self.spatial_sync.status()})
             else:
                 self._send(404, {"ok": False, "error": "not found"})
         except Exception as e:  # noqa: BLE001

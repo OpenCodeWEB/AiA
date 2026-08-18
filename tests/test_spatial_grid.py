@@ -210,6 +210,14 @@ class TestApiWiring:
             assert hasattr(NeuralHandler, "spatial")
             assert isinstance(NeuralHandler.spatial, SpatialGridCoordinator)
 
+    def test_handler_has_cluster_and_sync_modules(self) -> None:
+        from core.neural.cluster_heartbeat_election import ClusterHeartbeatElection
+        from core.neural.spatial_temporal_sync import SpatialTemporalSync
+
+        with NeuralHandler.lock:
+            assert isinstance(NeuralHandler.cluster, ClusterHeartbeatElection)
+            assert isinstance(NeuralHandler.spatial_sync, SpatialTemporalSync)
+
     def test_modules_status_includes_spatial(self) -> None:
         with NeuralHandler.lock:
             status = NeuralHandler.spatial.status()
@@ -221,3 +229,25 @@ class TestApiWiring:
             block = NeuralHandler.spatial.register(NeuralHandler.spatial.node_id)
         assert block["kind"] == "spatial_node"
         assert NeuralHandler.spatial.verify(block)
+
+    def test_sync_pulse_accepts_own_signed_update(self) -> None:
+        from core.neural.federated_sync import FederatedSync
+        from core.neural.self_evolving_nn import SelfEvolvingNN
+
+        with NeuralHandler.lock:
+            sync = FederatedSync(secret=NeuralHandler.federated.secret, node_id="api-peer")
+            nn = SelfEvolvingNN(input_size=2, hidden=[6], output_size=1)
+            sync.make_update(nn.weights, nn.biases, 1)  # baseline frame
+            nn.train([0.5, 0.5], [0.8])
+            update = sync.make_update(nn.weights, nn.biases, sample_count=4)
+            assert update is not None
+            NeuralHandler.spatial_sync.set_coords(NeuralHandler.spatial.coords())
+            accepted = NeuralHandler.spatial_sync.ingest(
+                "api-peer",
+                NeuralHandler.spatial.coords(),
+                update,
+                secret=NeuralHandler.federated.secret,
+            )
+            assert accepted is True
+            assert NeuralHandler.spatial_sync.pulses == 1
+            NeuralHandler.spatial_sync.entries = []  # reset for other tests
