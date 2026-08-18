@@ -153,7 +153,8 @@ class Brain {
   constructor(input = 2, hidden = [5], output = 1, lr = 0.12) {
     this.input = input; this.output = output; this.hidden = hidden; this.lr = lr;
     this.gen = 0; this.samples = 0; this.evolutions = 0; this.evoLog = [];
-    this.ema = null; this.best = null; this.stuck = 0; this.patience = 60;
+    this.ema = null; this.best = null; this.stuck = 0; this.patience = 120;
+    this.baseLr = lr;
     this.replay = []; this.replayCap = 1500; this.evalW = [];
     this.w = []; this.b = [];
     const sizes = [input, ...hidden, output];
@@ -209,7 +210,11 @@ class Brain {
     } else {
       this.stuck++;
       this.lr = Math.max(this.lr * 0.995, 1e-4);
-      if (this.stuck >= this.patience) this.evolve("plateau");
+      if (this.stuck >= this.patience) {
+        // evolve only when genuinely stuck: an already-competent brain keeps learning
+        if (this.evalScore() < 0.95) this.evolve("plateau");
+        else this.stuck = Math.floor(this.patience * 0.6);
+      }
     }
     return loss;
   }
@@ -233,7 +238,7 @@ class Brain {
     this.gen++; this.stuck = 0; this.evolutions++;
     const layerIdx = (this.gen - 1) % this.hidden.length;
     const old = this.hidden[layerIdx];
-    const neu = Math.min(old + 2, 128);
+    const neu = Math.min(old + 2, 48);
     let action = "grow";
     if (neu === old) {
       if (this.hidden.length < 5) {
@@ -244,12 +249,17 @@ class Brain {
         this.b.splice(this.b.length-1, 0, [0, 0]);
       } else { action = "reset_weights"; this.w.forEach(m => m.forEach(r => r.forEach((_, i) => r[i] = (Math.random()*2-1)*0.15))); }
     } else {
-      this.hidden[layerIdx] = neu;
-      this.w[layerIdx].forEach(row => { for (let k = 0; k < 2; k++) row.push((Math.random()*2-1)*0.3); });
+this.hidden[layerIdx] = neu;
+      this.w[layerIdx].forEach(row => { for (let k = 0; k < 2; k++) row.push((Math.random()*2-1)*0.15); });
       this.b[layerIdx].push(0, 0);
-      this.w[layerIdx+1].push(...Array.from({length: 2}, () => Array.from({length: this.w[layerIdx+1][0].length}, () => (Math.random()*2-1)*0.3)));
+      this.w[layerIdx+1].push(...Array.from({length: 2}, () => Array.from({length: this.w[layerIdx+1][0].length}, () => (Math.random()*2-1)*0.15)));
     }
+    this.lr = 0.1; // rebirth energy: fresh learning rate after every evolution
     this.evoLog.push(`gen${this.gen}: ${action} (${reason}) → [${this.hidden.join(',')}]`);
+    // rebirth: restore learning energy + relax the loss target so the new
+    // capacity gets a fair chance before the next plateau (mirrors core/neural)
+    this.lr = this.baseLr;
+    if (this.ema !== null) this.best = this.ema * 1.15;
   }
   reset() { this.w = []; this.b = []; const s = [this.input, ...this.hidden, this.output]; for (let i = 0; i < s.length-1; i++) { const sc = Math.sqrt(2/s[i]); this.w.push(Array.from({length: s[i]}, () => Array.from({length: s[i+1]}, () => (Math.random()*2-1)*sc))); this.b.push(new Array(s[i+1]).fill(0)); } this.gen = 0; this.samples = 0; this.evolutions = 0; this.ema = null; this.best = null; this.stuck = 0; this.replay = []; this.evalW = []; this.evoLog = []; this.lr = 0.12; }
 }

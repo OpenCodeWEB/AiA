@@ -178,7 +178,12 @@ class SelfEvolvingNN:
             # plateau -> slow down (stability)
             self.lr = max(self.lr * 0.995, self.lr_floor)
             if self.evals_without_improvement >= self.patience:
-                self.evolve(reason="plateau")
+                # evolve only when genuinely stuck: an already-competent
+                # brain keeps learning without disrupting its architecture
+                if self.self_evaluate().get("accuracy") is None or self.eval_accuracy < 0.95:
+                    self.evolve(reason="plateau")
+                else:
+                    self.evals_without_improvement = int(self.patience * 0.6)
 
     # ------------------------------------------------------------------ #
     # self-evaluation
