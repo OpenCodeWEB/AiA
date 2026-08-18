@@ -1,15 +1,25 @@
 """AiA neural API - the live surface of the self-evolving brain.
 
-Threading HTTP server exposing the SelfEvolvingNN as JSON endpoints so the
-AiA engine (and any local tooling) can train, query and evolve the network:
+Threading HTTP server exposing the SelfEvolvingNN and its companion neural
+modules as JSON endpoints so the AiA engine (and any local tooling) can
+train, query, evolve and inspect the network:
 
   GET  /health                liveness probe
   GET  /status                network snapshot (flat primitives)
+  GET  /modules               status of every neural module
   GET  /predict?input=a,b,c   one-shot prediction
   POST /train   {"inputs":[..],"target":[..]}  online training step
   POST /replay  {"batch":16}  experience replay rehearsal
   POST /evolve  {"reason":"manual"}  force an architecture evolution
   POST /reset   {"input":2,"hidden":[6],"output":1}  fresh brain
+
+  POST /compress_memory       compress the replay buffer into latent vectors
+  POST /anomaly/train         teach the anomaly detector a normal sample
+  POST /anomaly/check         score one input for anomalies
+  POST /curriculum/update     feed a training outcome to the curriculum
+  POST /memory/store          store a pattern in associative memory
+  POST /memory/recall         reconstruct a corrupted pattern
+  POST /predict_sequence      forecast the next steps of a sequence
 """
 
 from __future__ import annotations
@@ -19,11 +29,30 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
+from .anomaly_detector import AnomalyDetector
+from .autoencoder_compressor import AutoencoderCompressor
+from .curriculum_controller import CurriculumController
+from .hopfield_memory import HopfieldMemory
+from .rnn_sequence import ElmanRNN
 from .self_evolving_nn import SelfEvolvingNN
+
+
+def _f64(value: Any) -> float:
+    return float(value)
+
+
+def _f64_list(values: Any) -> list[float]:
+    return [_f64(v) for v in values]
 
 
 class NeuralHandler(BaseHTTPRequestHandler):
     nn: SelfEvolvingNN = SelfEvolvingNN()
+    compressor: AutoencoderCompressor = AutoencoderCompressor(input_size=2, bottleneck=1, hidden=6)
+    anomaly: AnomalyDetector = AnomalyDetector(input_size=2, bottleneck=1, hidden=6)
+    curriculum: CurriculumController = CurriculumController()
+    memory: HopfieldMemory = HopfieldMemory(size=16)
+    rnn: ElmanRNN = ElmanRNN(input_size=2, hidden_size=8, output_size=1)
+    lock: threading.RLock = threading.RLock()
 
     def _send(self, code: int, obj: Any) -> None:
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -43,12 +72,29 @@ class NeuralHandler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             return {}
 
+    # ------------------------------------------------------------------ #
+    # GET
+    # ------------------------------------------------------------------ #
     def do_GET(self) -> None:  # noqa: N802
         try:
             if self.path.startswith("/health"):
                 self._send(200, {"ok": True, "service": "aia-neural"})
+            elif self.path.startswith("/modules"):
+                with NeuralHandler.lock:
+                    self._send(
+                        200,
+                        {
+                            "brain": self.nn.status(),
+                            "compressor": self.compressor.status(),
+                            "anomaly": self.anomaly.status(),
+                            "curriculum": self.curriculum.status(),
+                            "memory": self.memory.status(),
+                            "rnn": self.rnn.status(),
+                        },
+                    )
             elif self.path.startswith("/status"):
-                self._send(200, self.nn.status())
+                with NeuralHandler.lock:
+                    self._send(200, self.nn.status())
             elif self.path.startswith("/predict"):
                 query = self.path.split("?", 1)[-1]
                 parts = query.split("input=", 1)[-1].split("&", 1)[0]
@@ -60,12 +106,16 @@ class NeuralHandler(BaseHTTPRequestHandler):
                 if len(x) != self.nn.input_size:
                     self._send(400, {"ok": False, "error": f"expected {self.nn.input_size} inputs"})
                     return
-                self._send(200, {"ok": True, "input": x, "output": self.nn.forward(x), "status": self.nn.status()})
+                with NeuralHandler.lock:
+                    self._send(200, {"ok": True, "input": x, "output": self.nn.forward(x), "status": self.nn.status()})
             else:
                 self._send(404, {"ok": False, "error": "not found"})
         except Exception as e:  # noqa: BLE001
             self._send(500, {"ok": False, "error": str(e)})
 
+    # ------------------------------------------------------------------ #
+    # POST
+    # ------------------------------------------------------------------ #
     def do_POST(self) -> None:  # noqa: N802
         try:
             data = self._read_json()
@@ -75,23 +125,122 @@ class NeuralHandler(BaseHTTPRequestHandler):
                 if not inputs or not target or len(inputs) != self.nn.input_size or len(target) != self.nn.output_size:
                     self._send(400, {"ok": False, "error": "inputs/target size mismatch"})
                     return
-                loss = self.nn.train([float(v) for v in inputs], [float(v) for v in target])
-                self._send(200, {"ok": True, "loss": round(loss, 6), "status": self.nn.status()})
+                with NeuralHandler.lock:
+                    loss = self.nn.train(_f64_list(inputs), _f64_list(target))
+                    self._send(200, {"ok": True, "loss": round(loss, 6), "status": self.nn.status()})
             elif self.path.startswith("/replay"):
                 batch = int(data.get("batch", 16))
-                avg = self.nn.replay_pass(batch)
-                self._send(200, {"ok": True, "avg_loss": round(avg, 6), "status": self.nn.status()})
+                with NeuralHandler.lock:
+                    avg = self.nn.replay_pass(batch)
+                    self._send(200, {"ok": True, "avg_loss": round(avg, 6), "status": self.nn.status()})
             elif self.path.startswith("/evolve"):
-                event = self.nn.evolve(reason=str(data.get("reason", "manual")))
-                self._send(200, {"ok": True, "event": event, "status": self.nn.status()})
+                with NeuralHandler.lock:
+                    event = self.nn.evolve(reason=str(data.get("reason", "manual")))
+                    self._send(200, {"ok": True, "event": event, "status": self.nn.status()})
             elif self.path.startswith("/reset"):
-                self.nn = SelfEvolvingNN(
-                    input_size=int(data.get("input", 2)),
-                    hidden=[int(v) for v in data.get("hidden", [6])],
-                    output_size=int(data.get("output", 1)),
-                )
-                NeuralHandler.nn = self.nn
-                self._send(200, {"ok": True, "status": self.nn.status()})
+                with NeuralHandler.lock:
+                    self.nn = SelfEvolvingNN(
+                        input_size=int(data.get("input", 2)),
+                        hidden=[int(v) for v in data.get("hidden", [6])],
+                        output_size=int(data.get("output", 1)),
+                    )
+                    NeuralHandler.nn = self.nn
+                    self._send(200, {"ok": True, "status": self.nn.status()})
+            elif self.path.startswith("/compress_memory"):
+                with NeuralHandler.lock:
+                    # compress the brain's replay buffer into latent vectors
+                    samples = [list(x) for x, _ in self.nn.replay]
+                    if samples:
+                        avg = self.compressor.train_batch(samples[: min(len(samples), 256)])
+                        latent = self.compressor.compress(samples)
+                    else:
+                        avg, latent = 0.0, []
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "samples_compressed": len(latent),
+                            "latent_dim": self.compressor.bottleneck,
+                            "compression_ratio": self.compressor.status()["compression_ratio"],
+                            "avg_reconstruction_loss": round(avg, 6),
+                            "compressed_vectors": [list(map(lambda v: round(v, 6), z)) for z in latent],
+                        },
+                    )
+            elif self.path.startswith("/anomaly/train"):
+                inputs = data.get("inputs")
+                if not inputs or len(inputs) != self.anomaly.input_size:
+                    self._send(400, {"ok": False, "error": f"expected {self.anomaly.input_size} inputs"})
+                    return
+                with NeuralHandler.lock:
+                    loss = self.anomaly.train(_f64_list(inputs))
+                    self._send(200, {"ok": True, "loss": round(loss, 6), "anomaly": self.anomaly.status()})
+            elif self.path.startswith("/anomaly/check"):
+                inputs = data.get("inputs")
+                if not inputs or len(inputs) != self.anomaly.input_size:
+                    self._send(400, {"ok": False, "error": f"expected {self.anomaly.input_size} inputs"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.anomaly.check(_f64_list(inputs))
+                    self._send(200, {"ok": True, **result})
+            elif self.path.startswith("/curriculum/update"):
+                inputs = data.get("inputs")
+                loss = data.get("loss")
+                if not inputs or loss is None:
+                    self._send(400, {"ok": False, "error": "inputs and loss are required"})
+                    return
+                with NeuralHandler.lock:
+                    state = self.curriculum.update(_f64_list(inputs), _f64(loss))
+                    self._send(200, {"ok": True, **state})
+            elif self.path.startswith("/memory/store"):
+                pattern = data.get("pattern")
+                if not pattern or len(pattern) != self.memory.size:
+                    self._send(400, {"ok": False, "error": f"pattern must have {self.memory.size} elements"})
+                    return
+                with NeuralHandler.lock:
+                    idx = self.memory.store(_f64_list(pattern))
+                    self._send(200, {"ok": True, "index": idx, "memory": self.memory.status()})
+            elif self.path.startswith("/memory/recall"):
+                corrupted = data.get("corrupted")
+                if not corrupted or len(corrupted) != self.memory.size:
+                    self._send(400, {"ok": False, "error": f"corrupted must have {self.memory.size} elements"})
+                    return
+                with NeuralHandler.lock:
+                    result = self.memory.recall(_f64_list(corrupted))
+                    self._send(200, {"ok": True, **result, "memory": self.memory.status()})
+            elif self.path.startswith("/predict_sequence"):
+                sequence = data.get("sequence")
+                if not sequence or not all(isinstance(s, (list, tuple)) for s in sequence):
+                    self._send(400, {"ok": False, "error": "sequence must be a list of vectors"})
+                    return
+                seq = [_f64_list(s) for s in sequence]
+                if any(len(s) != self.rnn.input_size for s in seq):
+                    self._send(400, {"ok": False, "error": f"expected vectors of {self.rnn.input_size}"})
+                    return
+                steps_ahead = max(1, int(data.get("steps_ahead", 1)))
+                with NeuralHandler.lock:
+                    preds = self.rnn.predict_sequence(seq, steps_ahead)
+                    self._send(
+                        200,
+                        {
+                            "ok": True,
+                            "predictions": [list(map(lambda v: round(v, 6), p)) for p in preds],
+                            "rnn": self.rnn.status(),
+                        },
+                    )
+            elif self.path.startswith("/rnn/train"):
+                sequence = data.get("sequence")
+                targets = data.get("targets")
+                if not sequence or not targets or len(sequence) != len(targets):
+                    self._send(400, {"ok": False, "error": "sequence and targets must match"})
+                    return
+                seq = [_f64_list(s) for s in sequence]
+                tgt = [_f64_list(t) for t in targets]
+                if any(len(s) != self.rnn.input_size for s in seq):
+                    self._send(400, {"ok": False, "error": f"expected vectors of {self.rnn.input_size}"})
+                    return
+                with NeuralHandler.lock:
+                    loss = self.rnn.train_sequence(seq, tgt)
+                    self._send(200, {"ok": True, "loss": round(loss, 6), "rnn": self.rnn.status()})
             else:
                 self._send(404, {"ok": False, "error": "not found"})
         except Exception as e:  # noqa: BLE001

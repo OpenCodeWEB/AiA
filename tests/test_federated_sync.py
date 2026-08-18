@@ -6,7 +6,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import pytest  # noqa: E402
 
 from federated_learning_sync import AiAFederatedSync, _abstract_solution, _categorize  # noqa: E402
 
@@ -106,7 +105,13 @@ def test_patch_download_validates_and_dedupes(tmp_path):
 
     sync._get = lambda url: {
         "patches": [
-            {"category": "flutter_ui", "pattern": "flutter overflow fix", "solution_template": "wrap in SingleChildScrollView", "signature": "new-sig-12345678", "ts": 5},
+            {
+                "category": "flutter_ui",
+                "pattern": "flutter overflow fix",
+                "solution_template": "wrap in SingleChildScrollView",
+                "signature": "new-sig-12345678",
+                "ts": 5,
+            },
             {"category": "flutter_ui", "pattern": "dup", "solution_template": "x", "signature": "dup-sig-12345678", "ts": 6},
             {"category": "x", "pattern": "bad", "solution_template": "y", "signature": "short", "ts": 7},  # invalid signature
             "not-a-dict",
