@@ -1,13 +1,12 @@
 # =====================================================================
 # OpenCodeWEB OS — Self-Healing CI/CD Pipeline
 # ---------------------------------------------------------------------
-# Runs on every push to `main` (and on demand):
-#   1. Pre-mutation backup branch (per OpenCodeWEB backup policy)
-#   2. Secret leak prevention scan
-#   3. Lint (ruff) + tests (pytest)
-#   4. Deploy web portals to Cloudflare Pages -> https://pocwu.pages.dev
-#   5. Health check the edge gateway -> https://opencodeweb.xup.workers.dev/health
-#   6. Self-healing: on failure, open an alert issue and attempt rollback
+# Runs on every push to `Dev` (and on demand):
+#   1. Secret leak prevention scan
+#   2. Lint (ruff) + tests (pytest)
+#   3. Health check the edge gateway -> https://opencodeweb.xup.workers.dev/health
+#   4. Self-healing: on failure, open an alert issue and attempt rollback
+#   (aiax.pages.dev deploys natively via Cloudflare Pages Git integration)
 #
 # Maintainers: ABsUP & ABsUPs
 # =====================================================================
@@ -16,7 +15,7 @@ name: OpenCodeWEB Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [Dev]
   workflow_dispatch:
   schedule:
     - cron: "0 */6 * * *" # periodic health self-check every 6 hours
@@ -32,30 +31,7 @@ permissions:
 
 jobs:
   # -------------------------------------------------------------------
-  # 1. PRE-MUTATION BACKUP (self-healing foundation)
-  # -------------------------------------------------------------------
-  backup:
-    name: Pre-mutation backup branch
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Create backup branch under main
-        run: |
-          git config user.name "opencodeweb[bot]"
-          git config user.email "311941023+opencodeweb[bot]@users.noreply.github.com"
-          TIMESTAMP=$(date -u +%Y%m%d-%H%M%S)
-          BRANCH="backup/opencode-${{ github.event.repository.name }}-${TIMESTAMP}"
-          git branch "$BRANCH" HEAD
-          git push origin "$BRANCH"
-          echo "backup_branch=$BRANCH" >> "$GITHUB_OUTPUT"
-        id: backup
-
-      - name: Report backup branch
-        run: echo "Created ${{ steps.backup.outputs.backup_branch }}"
-
-  # -------------------------------------------------------------------
-  # 2. QUALITY GATE: secret scan + lint + tests
+  # 1. QUALITY GATE: secret scan + lint + tests
   # -------------------------------------------------------------------
   quality:
     name: Secret scan / lint / tests
@@ -99,72 +75,11 @@ jobs:
           echo "Repository skeleton valid."
 
   # -------------------------------------------------------------------
-  # 3. DEPLOY WEB PORTALS -> Cloudflare Pages (pocwu.pages.dev)
-  #    Deploys only when a static portal directory exists in this repo.
-  #    (hashFiles is step-scoped, so the gate lives on the deploy step.)
-  # -------------------------------------------------------------------
-  deploy-portal:
-    name: Deploy portal to Cloudflare Pages
-    needs: [backup, quality]
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
-      - name: Install wrangler
-        run: npm install -g wrangler
-
-      - name: Deploy to Cloudflare Pages (pocwu.pages.dev)
-        id: pages-deploy
-        if: hashFiles('web/**', 'portal/**', 'site/**', 'docs/**') != ''
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'pocwu' }}
-        run: |
-          PORTAL_DIR=""
-          for candidate in web portal site docs; do
-            if [ -d "$candidate" ]; then PORTAL_DIR="$candidate"; break; fi
-          done
-          if [ -z "$PORTAL_DIR" ]; then
-            echo "No portal directory found — skipping deployment."
-            echo "deployed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "Deploying portal from ./${PORTAL_DIR} to Pages project '${CLOUDFLARE_PROJECT}'"
-          DEPLOYMENT_URL=$(wrangler pages deploy "${PORTAL_DIR}" \
-            --project-name="${CLOUDFLARE_PROJECT}" \
-            --branch=main 2>&1 | tee /tmp/wrangler.log | grep -oP 'https://[a-z0-9-]+\.\S*pages\.dev' | head -1 || true)
-          echo "deployment_url=${DEPLOYMENT_URL:-https://pocwu.pages.dev}" >> "$GITHUB_OUTPUT"
-          echo "deployed=true" >> "$GITHUB_OUTPUT"
-          cat /tmp/wrangler.log
-
-      - name: Verify portal is live
-        if: steps.pages-deploy.outputs.deployed == 'true'
-        run: |
-          URL="${{ steps.pages-deploy.outputs.deployment_url || 'https://pocwu.pages.dev' }}"
-          for i in 1 2 3 4 5; do
-            if curl -fsS -o /dev/null --max-time 15 "$URL"; then
-              echo "Portal OK: $URL"
-              exit 0
-            fi
-            echo "Portal not ready yet (attempt $i/5) — retrying..."
-            sleep 10
-          done
-          echo "::error::Portal failed to respond: $URL"
-          exit 1
-
-  # -------------------------------------------------------------------
-  # 4. EDGE GATEWAY HEALTH CHECK + SELF-HEALING ALERT
+  # 2. EDGE GATEWAY HEALTH CHECK + SELF-HEALING ALERT
   # -------------------------------------------------------------------
   health-check:
     name: Gateway health + self-healing
-    needs: [backup, quality]
+    needs: [quality]
     runs-on: ubuntu-latest
     steps:
       - name: Ping edge gateway health endpoint
@@ -210,14 +125,14 @@ jobs:
           echo "::warning::Could not create alert issue (missing permissions?)"
 
   # -------------------------------------------------------------------
-  # 5. OPTIONAL ROLLBACK JOB (deploy pipeline failures only)
+  # 3. OPTIONAL ROLLBACK JOB (deploy pipeline failures only)
   #    Re-queues the previous successful run for redeployment, which is
   #    the OpenCodeWEB "rollback via re-deploy" strategy.
   # -------------------------------------------------------------------
   rollback:
     name: Auto-rollback (re-deploy previous)
-    needs: [deploy-portal, health-check]
-    if: failure() && needs.deploy-portal.result == 'failure'
+    needs: [health-check]
+    if: failure() && needs.health-check.result == 'failure'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -246,15 +161,14 @@ jobs:
   # -------------------------------------------------------------------
   summary:
     name: Pipeline summary
-    needs: [backup, quality, health-check]
+    needs: [quality, health-check]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
           echo "## OpenCodeWEB Pipeline summary" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Backup branch: ${{ needs.backup.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Quality gate: ${{ needs.quality.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Health check: ${{ needs.health-check.result }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Gateway: https://opencodeweb.xup.workers.dev/health" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Portal: https://pocwu.pages.dev" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Portal (aiax): https://aiax.pages.dev" >> "$GITHUB_STEP_SUMMARY"
